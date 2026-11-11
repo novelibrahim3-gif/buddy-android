@@ -67,6 +67,19 @@ final class RootControl {
         run("input keyevent KEYCODE_" + normalized);
     }
 
+    /** Fixed system-navigation actions; no command text comes from an MCP argument. */
+    static void pressSystemButton(String button) throws IOException {
+        if (button == null) throw new IllegalArgumentException("A system button is required.");
+        switch (button) {
+            case "back": press("BACK"); return;
+            case "home": press("HOME"); return;
+            case "recents": press("APP_SWITCH"); return;
+            case "notifications": run("cmd statusbar expand-notifications"); return;
+            case "quick_settings": run("cmd statusbar expand-settings"); return;
+            default: throw new IllegalArgumentException("Unsupported system button: " + button);
+        }
+    }
+
     static void typeText(String value) throws IOException {
         if (value == null || value.length() == 0) return;
         if (value.length() > MAX_TEXT_LENGTH) throw new IllegalArgumentException("Text is too long (max 2000 characters).");
