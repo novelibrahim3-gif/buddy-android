@@ -209,11 +209,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("find",
                 "Visual search: return up to four screenshots while scrolling. The agent inspects images for the query; no OCR and no automatic match detection. Each scroll requires approval.",
                 new JSONObject().put("text", stringProperty("Text to look for visually, max 200 characters"))
-                        .put("direction", directionProperty()).put("max_pages", integerProperty("1 to 4 screenshots, default 4")), "text"));
+                        .put("direction", directionProperty()).put("max_scrolls", integerProperty("1 to 4 screenshot pages, default 4")), "text"));
         tools.put(tool("collect",
                 "Visual collection: return up to four screenshots while scrolling. The agent reads visible text from the images; no OCR. Each scroll requires approval.",
                 new JSONObject().put("direction", directionProperty())
-                        .put("max_pages", integerProperty("1 to 4 screenshots, default 4"))));
+                        .put("max_scrolls", integerProperty("1 to 4 screenshot pages, default 4")), "direction"));
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
@@ -713,7 +713,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (!("up".equals(direction) || "down".equals(direction) || "left".equals(direction) || "right".equals(direction))) {
             throw new IllegalArgumentException("Direction must be up, down, left or right.");
         }
-        int maxPages = (int) Math.max(1, Math.min(4, args.optInt("max_pages", 4)));
+        int maxPages = (int) Math.max(1, Math.min(4, args.optInt("max_scrolls", args.optInt("max_pages", 4))));
         JSONArray content = new JSONArray();
         content.put(new JSONObject().put("type", "text").put("text", "find".equals(mode)
                 ? "Visual search for: " + query + ". Screenshots follow in scroll order; inspect them yourself. No OCR is performed."
@@ -729,8 +729,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 break;
             }
             previous = current;
-            content.put(new JSONObject().put("type", "image").put("mimeType", "image/png")
-                    .put("data", Base64.encodeToString(png, Base64.NO_WRAP)));
+            content.put(visualImage(png));
             captured++;
             content.put(new JSONObject().put("type", "text").put("text", "Screenshot page " + captured + " in scroll order."));
             if (page + 1 >= maxPages) break;
@@ -778,6 +777,21 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text(String.format(java.util.Locale.ROOT, "TIMED OUT after %.1f s: the screen kept changing.",
                         (now - start) / 1000.0));
             }
+        }
+    }
+
+    private JSONObject visualImage(byte[] png) throws Exception {
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+        if (bitmap == null) throw new java.io.IOException("Could not decode a visual scan screenshot.");
+        try {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            if (!bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)) {
+                throw new java.io.IOException("Could not compress a visual scan screenshot.");
+            }
+            return new JSONObject().put("type", "image").put("mimeType", "image/jpeg")
+                    .put("data", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
+        } finally {
+            bitmap.recycle();
         }
     }
 
