@@ -121,7 +121,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
                 + "read_screen has no UI element ids "
-                + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for model-side visual reading; no OCR or element selectors; "
+                + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for a vision-capable client to inspect; no OCR or element selectors; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
