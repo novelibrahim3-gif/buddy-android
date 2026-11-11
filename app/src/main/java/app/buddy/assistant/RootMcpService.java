@@ -276,9 +276,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private String listApps() {
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
-        List<ResolveInfo> apps = getPackageManager().queryIntentActivities(query, 0);
-        Collections.sort(apps, Comparator.comparing(r -> String.valueOf(r.loadLabel(getPackageManager())),
-                String.CASE_INSENSITIVE_ORDER));
+        PackageManager pm = getPackageManager();
+        List<ResolveInfo> apps = pm.queryIntentActivities(query, 0);
+        Collections.sort(apps, (left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
+                String.valueOf(left.loadLabel(pm)), String.valueOf(right.loadLabel(pm))));
         StringBuilder out = new StringBuilder();
         for (ResolveInfo r : apps) {
             if (r.activityInfo == null) continue;
@@ -336,10 +337,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             throw new IllegalArgumentException("Unsupported URL scheme: " + scheme);
         }
         Intent intent = new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (intent.resolveActivity(getPackageManager()) == null) {
+        try {
+            startActivity(intent);
+        } catch (android.content.ActivityNotFoundException e) {
             throw new IllegalArgumentException("No installed app can open this link.");
         }
-        startActivity(intent);
         return "Opened " + uri;
     }
 
