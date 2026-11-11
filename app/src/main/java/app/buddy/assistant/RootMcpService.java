@@ -249,7 +249,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("question", stringProperty("Short, clear question"))
                         .put("options", new JSONObject().put("type", "array").put("minItems", 2).put("maxItems", 4)
                                 .put("items", stringProperty("One short answer choice")))
-                        .put("highlight", coordinateMarksProperty("Optional coordinate marks shown while asking; no element ids.")),
+                        .put("highlight", coordinateMarksProperty("Optional coordinate marks shown while asking; no element ids."))
+                        .put("browser_highlight", browserMarksProperty()),
                 "question", "options"));
         tools.put(tool("point_out",
                 "Show up to six coordinate-only, non-touchable overlay marks. Requires Android Display over other apps permission. "
@@ -428,6 +429,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 if (summary.length() > 500) throw new IllegalArgumentException("Approval summaries are limited to 500 characters.");
                 String approval = RootApproval.request(this, "Approve this action?\n" + summary);
                 if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
+                Guard.approved(summary);
                 return text("APPROVED by the user. Go ahead.");
             }
             case "ask": {
@@ -443,6 +445,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                     if (!options.contains(option)) options.add(option);
                 }
                 if (options.size() < 2) throw new IllegalArgumentException("Give at least two different answer choices.");
+                JSONArray browserHighlight = args.optJSONArray("browser_highlight");
+                if (browserHighlight != null && browserHighlight.length() > 0) {
+                    return text(askInBrowser(question, options, browserHighlight));
+                }
                 JSONArray highlight = args.optJSONArray("highlight");
                 boolean showingMarks = highlight != null && highlight.length() > 0;
                 if (!showingMarks) {
@@ -499,6 +505,55 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             default:
                 throw new IllegalArgumentException("Tool unavailable in the standalone KernelSU runtime: " + name
                         + ". Use tools/list for the available root-only tools and their limits.");
+        }
+    }
+
+    private static JSONObject browserMarksProperty() throws JSONException {
+        JSONObject item = new JSONObject().put("type", "object")
+                .put("properties", new JSONObject()
+                        .put("ref", integerProperty("Item number from browser_read"))
+                        .put("label", stringProperty("Optional short label for the user")))
+                .put("required", new JSONArray().put("ref"));
+        return new JSONObject().put("type", "array").put("maxItems", 6).put("items", item)
+                .put("description", "Optional items in the current Background Browser tab to highlight for the user.");
+    }
+
+    private String askInBrowser(String question, java.util.List<String> options, JSONArray items) throws Exception {
+        String key = Browser.key(McpServer.CALLER_CHAT.get());
+        if (!Browser.available(this) || !Browser.running() || !Browser.hasTab(key)) {
+            return "The background browser has no page open for this chat: call browser_open first, or use coordinate highlight.";
+        }
+        JSONArray marks = new JSONArray();
+        for (int i = 0; i < items.length() && marks.length() < 6; i++) {
+            JSONObject item = items.optJSONObject(i);
+            if (item != null && item.has("ref")) {
+                marks.put(new JSONObject().put("ref", item.getInt("ref")).put("label", item.optString("label")));
+            }
+        }
+        if (marks.length() == 0) return "Give browser_highlight as [{\"ref\": 12, \"label\": \"Your password\"}].";
+        Browser.setMarks(key, marks);
+        try {
+            JSONArray boxes = Browser.markBoxes(key, true);
+            for (int i = 0; boxes != null && i < boxes.length(); i++) {
+                if (boxes.isNull(i)) {
+                    return "There's no item [" + marks.getJSONObject(i).getInt("ref")
+                            + "] on the page now. Call browser_read again.";
+                }
+            }
+            try {
+                startActivity(new Intent(this, BrowserActivity.class).putExtra("key", key)
+                        .putExtra("guided", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            } catch (Exception e) {
+                return "Buddy couldn't open the guided browser view: " + e.getMessage()
+                        + ". Open the Background Browser from Buddy, then retry ask.";
+            }
+            String answer = RootApproval.requestChoice(this, question, options);
+            return answer == null || answer.isEmpty()
+                    ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
+                    : "ANSWER: “" + answer + "”";
+        } finally {
+            Browser.setMarks(key, null);
+            Browser.touched(key);
         }
     }
 
