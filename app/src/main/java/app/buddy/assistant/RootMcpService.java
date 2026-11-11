@@ -144,8 +144,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "ask.highlight and point_out accept coordinate marks only; ask.browser_highlight marks items in the Background Browser and opens it from the question notification. Neither mode tracks completion; the user answers manually. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
-                + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
-                + "the user enables Phone commands and Linux tools; it is not a sandbox. Never enter passwords, one-time codes, "
+                + "and requires one-shot approval; clipboard_read and location also require explicit notification approval. "
+                + "Phone tools that need a camera, permission prompt, Clock, Calendar or share sheet may require Buddy in the foreground; "
+                + "if Android blocks the activity launch, ask the user to open Buddy and retry. phone_shell uses the paired Wireless "
+                + "debugging helper as Android shell user only when the user enables Phone commands and Linux tools; it is not a sandbox. "
+                + "Never enter passwords, one-time codes, "
                 + "payment details or secrets."
                 + (Browser.available(this) ? " Background browser tools browser_open/read/click/type/scroll/screenshot/back/tabs are also available; "
                         + "they use Buddy's headless Chromium and one-shot approvals for risky page actions." : "");
