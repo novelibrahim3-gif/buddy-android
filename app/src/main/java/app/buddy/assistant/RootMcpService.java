@@ -123,6 +123,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
+                + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
@@ -219,18 +220,16 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
         tools.put(tool("ask",
                 "Ask the user a question through a notification with 2 to 4 answer buttons and an optional typed reply. "
-                        + "This root-only version does not support screen highlights.",
+                        + "Optional highlight accepts coordinate marks only and needs Display over other apps permission.",
                 new JSONObject().put("question", stringProperty("Short, clear question"))
                         .put("options", new JSONObject().put("type", "array").put("minItems", 2).put("maxItems", 4)
-                                .put("items", stringProperty("One short answer choice"))), "question", "options"));
+                                .put("items", stringProperty("One short answer choice")))
+                        .put("highlight", coordinateMarksProperty("Optional coordinate marks shown while asking; no element ids.")),
+                "question", "options"));
         tools.put(tool("point_out",
                 "Show up to six coordinate-only, non-touchable overlay marks. Requires Android Display over other apps permission. "
                         + "No element ids or completion detection; wait=true is unsupported.",
-                new JSONObject().put("marks", new JSONObject().put("type", "array").put("maxItems", 6)
-                        .put("items", new JSONObject().put("type", "object")
-                                .put("properties", new JSONObject().put("x", integerProperty("Screen X"))
-                                        .put("y", integerProperty("Screen Y")).put("label", stringProperty("Optional short label")))
-                                .put("required", new JSONArray().put("x").put("y"))))
+                new JSONObject().put("marks", coordinateMarksProperty("Coordinate marks; an empty array clears existing marks."))
                         .put("style", new JSONObject().put("type", "string").put("enum", new JSONArray().put("box").put("circle").put("arrow")))
                         .put("seconds", integerProperty("1 to 300 seconds, default 60"))
                         .put("wait", new JSONObject().put("type", "boolean").put("description", "Must be false; completion cannot be detected")), "marks"));
@@ -393,17 +392,31 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 JSONArray choices = args.getJSONArray("options");
                 if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
                 if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
-                if (args.has("highlight")) throw new IllegalArgumentException("Screen highlights are not available with Accessibility off.");
+                JSONArray highlight = args.optJSONArray("highlight");
+                boolean showingMarks = highlight != null && highlight.length() > 0;
+                if (showingMarks) {
+                    requireUnlocked();
+                    if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
+                    java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
+                    if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
+                    marksOverlay.show(marks, "box", 5 * 60_000L);
+                }
                 java.util.ArrayList<String> options = new java.util.ArrayList<>();
                 for (int i = 0; i < choices.length(); i++) {
                     String option = choices.optString(i).trim();
                     if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
                     options.add(option);
                 }
-                String answer = RootApproval.requestChoice(this, question, options);
-                return text(answer == null || answer.isEmpty()
-                        ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
-                        : "ANSWER: “" + answer + "”");
+                try {
+                    String answer = RootApproval.requestChoice(this, question, options);
+                    return text(answer == null || answer.isEmpty()
+                            ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
+                            : "ANSWER: “" + answer + "”");
+                } finally {
+                    if (showingMarks && marksOverlay != null) {
+                        try { marksOverlay.clear(); } catch (Exception ignored) { }
+                    }
+                }
             }
             case "point_out":
                 return pointOut(args);
@@ -436,6 +449,27 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private boolean ensureOverlayPermission() {
+        if (android.provider.Settings.canDrawOverlays(this)) return true;
+        startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                Uri.parse("package:" + getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        return false;
+    }
+
+    private java.util.ArrayList<RootMarksOverlay.Mark> coordinateMarks(JSONArray values) throws JSONException {
+        if (values.length() > 6) throw new IllegalArgumentException("At most six coordinate marks are supported.");
+        java.util.ArrayList<RootMarksOverlay.Mark> marks = new java.util.ArrayList<>();
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject item = values.getJSONObject(i);
+            int x = item.getInt("x"), y = item.getInt("y");
+            requirePoint(x, y);
+            String label = item.optString("label", "").trim();
+            if (label.length() > 64) throw new IllegalArgumentException("Mark labels are limited to 64 characters.");
+            marks.add(new RootMarksOverlay.Mark(x, y, label));
+        }
+        return marks;
+    }
+
     private JSONObject pointOut(JSONObject args) throws Exception {
         JSONArray values = args.optJSONArray("marks");
         if (values == null) throw new IllegalArgumentException("Give a marks array; use an empty array to clear existing marks.");
@@ -446,24 +480,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (values.length() > 6) throw new IllegalArgumentException("At most six coordinate marks are supported.");
         if (args.optBoolean("wait", false)) throw new IllegalArgumentException("Root-only point_out cannot wait for completion; it can only display coordinate guides.");
         requireUnlocked();
-        if (!android.provider.Settings.canDrawOverlays(this)) {
-            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:" + getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+        if (!ensureOverlayPermission()) {
             return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call point_out again.");
         }
         String style = args.optString("style", "box");
         if (!("box".equals(style) || "circle".equals(style) || "arrow".equals(style))) {
             throw new IllegalArgumentException("Style must be box, circle or arrow.");
         }
-        java.util.ArrayList<RootMarksOverlay.Mark> marks = new java.util.ArrayList<>();
-        for (int i = 0; i < values.length(); i++) {
-            JSONObject item = values.getJSONObject(i);
-            int x = item.getInt("x"), y = item.getInt("y");
-            requirePoint(x, y);
-            String label = item.optString("label", "").trim();
-            if (label.length() > 64) throw new IllegalArgumentException("Mark labels are limited to 64 characters.");
-            marks.add(new RootMarksOverlay.Mark(x, y, label));
-        }
+        java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(values);
         int seconds = (int) Math.max(1, Math.min(300, args.optInt("seconds", 60)));
         if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
         try {
@@ -850,6 +874,17 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             schema.put("required", req);
         }
         return new JSONObject().put("name", name).put("description", description).put("inputSchema", schema);
+    }
+
+    private static JSONObject coordinateMarksProperty(String description) throws JSONException {
+        JSONObject item = new JSONObject().put("type", "object")
+                .put("properties", new JSONObject()
+                        .put("x", integerProperty("Screen X coordinate"))
+                        .put("y", integerProperty("Screen Y coordinate"))
+                        .put("label", stringProperty("Optional short label, max 64 characters")))
+                .put("required", new JSONArray().put("x").put("y"));
+        return new JSONObject().put("type", "array").put("maxItems", 6).put("items", item)
+                .put("description", description);
     }
 
     private static JSONObject stringProperty(String description) throws JSONException {
