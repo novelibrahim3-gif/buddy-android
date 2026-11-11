@@ -114,14 +114,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, find, collect, type_text, confirm, ask, point_out, notify, "
-                + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
+                + "wait_for (foreground-app match and/or settled-only; text/gone matching is unavailable), wait_for_install, install_apk, update_buddy, schedule_message, "
                 + "list_scheduled, cancel_scheduled, phone_shell and reply_notification (the last two require their user settings/rule context). "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
                 + "read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for a vision-capable client to inspect; no OCR or element selectors; "
-                + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
+                + "wait_for can match the foreground app via Android system diagnostics and/or wait for 700 ms of visual stability; text/gone matching still needs OCR. "
                 + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
@@ -217,11 +217,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
         tools.put(tool("wait_for",
-                "Wait until the display stops changing for at least 700 ms. This root-only version supports settled=true only; "
-                        + "text/gone/app matching requires OCR or foreground-app access and is not available.",
-                new JSONObject().put("settled", new JSONObject().put("type", "boolean")
-                                .put("description", "Must be true: wait for the screen to settle"))
-                        .put("timeout_ms", integerProperty("Default 8000, maximum 30000 ms")), "settled"));
+                "Wait for the requested foreground app and/or for the display to remain visually stable for at least 700 ms. "
+                        + "App matching uses Android system diagnostics, not Accessibility. text/gone matching is unavailable without OCR.",
+                new JSONObject().put("app", stringProperty("Optional app package name or visible app label"))
+                        .put("settled", new JSONObject().put("type", "boolean")
+                                .put("description", "Optional: also require 700 ms of visual stability"))
+                        .put("timeout_ms", integerProperty("Default 8000, maximum 30000 ms")));
         tools.put(tool("confirm",
                 "Ask the user to approve an outward-facing or hard-to-undo action. The exact summary is shown in a one-shot notification.",
                 new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
@@ -756,34 +757,65 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private JSONObject waitFor(JSONObject args) throws Exception {
-        if (!args.optBoolean("settled", false)) {
-            throw new IllegalArgumentException("Set settled=true. Root mode cannot match text, gone text or foreground app.");
+        String app = args.optString("app", "").trim();
+        boolean settled = args.optBoolean("settled", false);
+        if (args.has("text") || args.has("gone")) {
+            throw new IllegalArgumentException("Root mode wait_for cannot match text/gone without OCR. Use find for visual text inspection.");
         }
-        if (args.has("text") || args.has("gone") || args.has("app")) {
-            throw new IllegalArgumentException("Root mode wait_for supports settled=true only; text/gone/app matching needs OCR or foreground-app access.");
+        if (app.isEmpty() && !settled) {
+            throw new IllegalArgumentException("Give app, settled=true, or both.");
         }
         requireUnlocked();
         long timeout = Math.max(500, Math.min(30000, args.optLong("timeout_ms", 8000)));
         long start = android.os.SystemClock.elapsedRealtime();
         long stableSince = start;
-        String last = screenFingerprint();
+        String last = settled ? screenFingerprint() : null;
+        String lastPackage = "";
         while (true) {
             Thread.sleep(350);
             requireUnlocked();
-            String current = screenFingerprint();
             long now = android.os.SystemClock.elapsedRealtime();
-            if (!current.equals(last)) {
-                last = current;
-                stableSince = now;
+            boolean appMatches = true;
+            if (!app.isEmpty()) {
+                lastPackage = RootControl.foregroundPackage();
+                appMatches = matchesForegroundApp(app, lastPackage);
             }
-            if (now - stableSince >= 700) {
-                return text(String.format(java.util.Locale.ROOT, "OK after %.1f s; display was visually stable for at least 700 ms.",
-                        (now - start) / 1000.0));
+            boolean screenStable = true;
+            if (settled) {
+                String current = screenFingerprint();
+                if (!current.equals(last)) {
+                    last = current;
+                    stableSince = now;
+                }
+                screenStable = now - stableSince >= 700;
+            }
+            if (appMatches && screenStable) {
+                String detail = !app.isEmpty() ? "foreground app matched " + app + " (" + lastPackage + ")"
+                        : "display was visually stable for at least 700 ms";
+                if (!app.isEmpty() && settled) detail += " and display was visually stable for at least 700 ms";
+                return text(String.format(java.util.Locale.ROOT, "OK after %.1f s; %s.",
+                        (now - start) / 1000.0, detail));
             }
             if (now - start >= timeout) {
-                return text(String.format(java.util.Locale.ROOT, "TIMED OUT after %.1f s: the screen kept changing.",
-                        (now - start) / 1000.0));
+                String reason = !appMatches ? "foreground app did not match " + app + " (currently "
+                        + (lastPackage.isEmpty() ? "unknown" : lastPackage) + ")"
+                        : "the screen kept changing";
+                return text(String.format(java.util.Locale.ROOT, "TIMED OUT after %.1f s: %s.",
+                        (now - start) / 1000.0, reason));
             }
+        }
+    }
+
+    private boolean matchesForegroundApp(String wanted, String packageName) {
+        if (packageName == null || packageName.isEmpty()) return false;
+        if (packageName.equalsIgnoreCase(wanted)) return true;
+        try {
+            android.content.pm.ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
+            CharSequence label = getPackageManager().getApplicationLabel(info);
+            return label != null && label.toString().toLowerCase(java.util.Locale.ROOT)
+                    .contains(wanted.toLowerCase(java.util.Locale.ROOT));
+        } catch (PackageManager.NameNotFoundException ignored) {
+            return false;
         }
     }
 
