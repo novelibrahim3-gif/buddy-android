@@ -946,9 +946,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private String rootStatus() {
         boolean root = RootControl.available();
-        android.os.PowerManager power = getSystemService(android.os.PowerManager.class);
+        android.hardware.display.DisplayManager displays =
+                getSystemService(android.hardware.display.DisplayManager.class);
+        android.view.Display display = displays == null ? null
+                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
         android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
-        boolean screenOn = power != null && power.isInteractive();
+        boolean screenOn = display != null && display.getState() == android.view.Display.STATE_ON;
         boolean unlocked = screenOn && (keyguard == null || !keyguard.isKeyguardLocked());
         NotificationManager notifications = getSystemService(NotificationManager.class);
         boolean approvals = notifications != null && notifications.areNotificationsEnabled();
