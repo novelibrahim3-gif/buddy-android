@@ -142,7 +142,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 "Capture the real phone display as a PNG image using KernelSU screencap.",
                 new JSONObject()));
         tools.put(tool("root_status",
-                "Check whether Buddy has an authorized KernelSU root session. The first call may show a KernelSU prompt.",
+                "Report KernelSU, display/unlock, notification approval, overlay and optional Phone commands readiness.",
                 new JSONObject()));
         tools.put(tool("list_apps",
                 "List launchable apps and their package names.",
@@ -291,9 +291,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "screenshot":
                 return screenImage();
             case "root_status":
-                return text(RootControl.available()
-                        ? "KernelSU root is available to Buddy."
-                        : "KernelSU root is not available. Open KernelSU and grant Buddy root access.");
+                return text(rootStatus());
             case "list_apps":
                 return text(listApps());
             case "open_app":
@@ -873,6 +871,34 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 .put(new JSONObject().put("type", "text").put("text",
                         "Real display screenshot: " + width + "x" + height
                                 + " pixels. This is a visual-only screen read; there are no element ids.")));
+    }
+
+    private String rootStatus() {
+        boolean root = RootControl.available();
+        android.os.PowerManager power = getSystemService(android.os.PowerManager.class);
+        android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
+        boolean screenOn = power != null && power.isInteractive();
+        boolean unlocked = screenOn && (keyguard == null || !keyguard.isKeyguardLocked());
+        NotificationManager notifications = getSystemService(NotificationManager.class);
+        boolean approvals = notifications != null && notifications.areNotificationsEnabled();
+        if (approvals && Build.VERSION.SDK_INT >= 26) {
+            NotificationChannel channel = notifications.getNotificationChannel(RootApproval.CHANNEL);
+            approvals = channel != null && channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
+        }
+        boolean overlay = android.provider.Settings.canDrawOverlays(this);
+        boolean accessibility = SetupState.accessibilityEnabled(this);
+        boolean background = Background.setUp(this);
+        boolean phoneCommands = Prefs.phoneShell(this);
+        String chat = McpServer.CALLER_CHAT.get();
+        String linux = chat == null ? "unknown (no chat id)" : ChatHub.get(this).devFor(chat) ? "enabled" : "disabled";
+        return "Root MCP: responding.\n"
+                + "Accessibility: " + (accessibility ? "ON (root runtime should stop)" : "OFF") + ".\n"
+                + "KernelSU: " + (root ? "GRANTED" : "NOT GRANTED; open KernelSU and authorize Buddy") + ".\n"
+                + "Display: " + (screenOn ? "ON" : "OFF") + "; keyguard: " + (unlocked ? "UNLOCKED" : "LOCKED") + ".\n"
+                + "Approval notifications: " + (approvals ? "READY" : "NOT READY; enable Buddy notifications and its approval channel") + ".\n"
+                + "Display over other apps: " + (overlay ? "allowed" : "not allowed (needed for point_out/ask.highlight)") + ".\n"
+                + "Background helper paired: " + (background ? "yes" : "no") + "; Phone commands setting: "
+                + (phoneCommands ? "on" : "off") + "; Linux tools in this chat: " + linux + ".";
     }
 
     private String listApps() {
