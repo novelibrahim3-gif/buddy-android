@@ -66,7 +66,7 @@ final class RootApproval {
                     .setContentText(summary)
                     .setStyle(new Notification.BigTextStyle().bigText(summary
                             + "\nReview the latest screen image in the connected agent chat. This approval applies to one action only."))
-                    .setCategory(Notification.CATEGORY_ACTION)
+                    .setCategory(Notification.CATEGORY_STATUS)
                     .setAutoCancel(true)
                     .setTimeoutAfter(TIMEOUT_MS)
                     .addAction(new Notification.Action.Builder(null, "Approve once", yes).build())
