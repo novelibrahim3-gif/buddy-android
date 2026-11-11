@@ -69,7 +69,31 @@ final class PhoneTools {
     }
 
     private void runOnMain(Runnable action) {
-        new android.os.Handler(android.os.Looper.getMainLooper()).post(action);
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) action.run();
+        else new android.os.Handler(android.os.Looper.getMainLooper()).post(action);
+    }
+
+    private boolean startActivity(Intent intent) throws InterruptedException {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            try {
+                context.startActivity(intent);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        AtomicReference<Boolean> started = new AtomicReference<>(false);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        runOnMain(() -> {
+            try {
+                context.startActivity(intent);
+                started.set(true);
+            } catch (Exception ignored) {
+            } finally {
+                done.countDown();
+            }
+        });
+        return done.await(5, TimeUnit.SECONDS) && started.get();
     }
 
     private void showStatus(String status) {
@@ -226,11 +250,10 @@ final class PhoneTools {
         return "Timer started: " + (s >= 60 ? s / 60 + " min " : "") + (s % 60 > 0 || s < 60 ? s % 60 + " s" : "").trim() + ".";
     }
 
-    private boolean start(Intent i) {
+    private boolean start(Intent i) throws InterruptedException {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         if (i.resolveActivity(context.getPackageManager()) == null) return false;
-        runOnMain(() -> context.startActivity(i));
-        return true;
+        return startActivity(i);
     }
 
     // ------------------------------------------------------------- files
@@ -268,7 +291,7 @@ final class PhoneTools {
         if (!text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
         Intent chooser = Intent.createChooser(send, a.optString("title", null));
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        runOnMain(() -> context.startActivity(chooser));
+        if (!startActivity(chooser)) return "Android couldn't open the share sheet. Open Buddy in the foreground and try again.";
         return "The share sheet is open: the user picks the app. Nothing has been sent; if they asked you to send it "
                 + "somewhere, the approval rules still apply in that app.";
     }
