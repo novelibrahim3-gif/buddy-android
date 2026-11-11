@@ -71,6 +71,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (chat != null) STEP_COUNTS.remove(chat);
     }
 
+    static void runEnded(String chat) {
+        if (chat != null) STEP_COUNTS.remove(chat);
+    }
+
     private String countStep(String name, JSONObject args) {
         String chat = McpServer.CALLER_CHAT.get();
         if (chat == null || !COUNTED_TOOLS.contains(name)) return null;
