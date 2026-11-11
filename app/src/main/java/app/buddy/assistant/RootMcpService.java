@@ -1180,8 +1180,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public void onEvent(JSONObject event) {
-        if (!"buddy_pong".equals(event.optString("type"))) return;
-        Prefs.setHelperStatus(this, event.optString("text"));
+        if ("buddy_pong".equals(event.optString("type"))) {
+            Prefs.setHelperStatus(this, event.optString("text"));
         Prefs.setHelperVersion(this, event.optInt("helper", 1));
         if (event.has("signed")) Prefs.setSignedAgents(this, event.optString("signed"));
         JSONArray claude = event.optJSONArray("claude_models");
@@ -1209,6 +1209,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (grok != null && grok.length() > 0) {
             Prefs.setGrokModels(this, grok.toString());
             Models.set("grok", grok.toString());
+        }
             return;
         }
         String type = event.optString("type");
