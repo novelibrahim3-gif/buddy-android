@@ -145,7 +145,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; clipboard_read and location also require explicit notification approval. "
-                + "Phone tools that need a camera, permission prompt, Clock, Calendar or share sheet may require Buddy in the foreground; "
+                + "Phone tools that need the clipboard helper, camera, permission prompt, Clock, Calendar or share sheet may require Buddy in the foreground; "
                 + "if Android blocks the activity launch, ask the user to open Buddy and retry. phone_shell uses the paired Wireless "
                 + "debugging helper as Android shell user only when the user enables Phone commands and Linux tools; it is not a sandbox. "
                 + "Never enter passwords, one-time codes, "
