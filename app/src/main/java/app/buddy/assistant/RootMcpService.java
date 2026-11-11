@@ -222,7 +222,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("app", stringProperty("Optional app package name or visible app label"))
                         .put("settled", new JSONObject().put("type", "boolean")
                                 .put("description", "Optional: also require 700 ms of visual stability"))
-                        .put("timeout_ms", integerProperty("Default 8000, maximum 30000 ms")));
+                        .put("timeout_ms", integerProperty("Default 8000, maximum 30000 ms"))));
         tools.put(tool("confirm",
                 "Ask the user to approve an outward-facing or hard-to-undo action. The exact summary is shown in a one-shot notification.",
                 new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
