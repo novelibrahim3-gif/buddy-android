@@ -40,6 +40,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final int NOTIFICATION_ID = 8765;
     private McpServer server;
     private RootMarksOverlay marksOverlay;
+    private final Object marksLock = new Object();
 
     /** Start the standalone MCP server only when Buddy's Accessibility service is off. */
     static void ensure(Context context) {
@@ -412,26 +413,34 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 if (options.size() < 2) throw new IllegalArgumentException("Give at least two different answer choices.");
                 JSONArray highlight = args.optJSONArray("highlight");
                 boolean showingMarks = highlight != null && highlight.length() > 0;
-                if (showingMarks) {
-                    java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
-                    requireUnlocked();
-                    if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
-                    if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
-                    marksOverlay.show(marks, "box", 5 * 60_000L);
-                }
-                try {
+                if (!showingMarks) {
                     String answer = RootApproval.requestChoice(this, question, options);
                     return text(answer == null || answer.isEmpty()
                             ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
                             : "ANSWER: “" + answer + "”");
-                } finally {
-                    if (showingMarks && marksOverlay != null) {
-                        try { marksOverlay.clear(); } catch (Exception ignored) { }
+                }
+                java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
+                synchronized (marksLock) {
+                    requireUnlocked();
+                    if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
+                    if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
+                    marksOverlay.show(marks, "box", 5 * 60_000L);
+                    try {
+                        String answer = RootApproval.requestChoice(this, question, options);
+                        return text(answer == null || answer.isEmpty()
+                                ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
+                                : "ANSWER: “" + answer + "”");
+                    } finally {
+                        if (marksOverlay != null) {
+                            try { marksOverlay.clear(); } catch (Exception ignored) { }
+                        }
                     }
                 }
             }
             case "point_out":
-                return pointOut(args);
+                synchronized (marksLock) {
+                    return pointOut(args);
+                }
             case "notify": {
                 String status = args.getString("text").trim();
                 if (status.isEmpty()) throw new IllegalArgumentException("Give a status message.");
