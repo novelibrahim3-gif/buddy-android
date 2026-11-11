@@ -403,9 +403,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 JSONArray highlight = args.optJSONArray("highlight");
                 boolean showingMarks = highlight != null && highlight.length() > 0;
                 if (showingMarks) {
+                    java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
                     requireUnlocked();
                     if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
-                    java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
                     if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
                     marksOverlay.show(marks, "box", 5 * 60_000L);
                 }
@@ -481,15 +481,15 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
         if (values.length() > 6) throw new IllegalArgumentException("At most six coordinate marks are supported.");
         if (args.optBoolean("wait", false)) throw new IllegalArgumentException("Root-only point_out cannot wait for completion; it can only display coordinate guides.");
-        requireUnlocked();
-        if (!ensureOverlayPermission()) {
-            return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call point_out again.");
-        }
         String style = args.optString("style", "box");
         if (!("box".equals(style) || "circle".equals(style) || "arrow".equals(style))) {
             throw new IllegalArgumentException("Style must be box, circle or arrow.");
         }
         java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(values);
+        requireUnlocked();
+        if (!ensureOverlayPermission()) {
+            return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call point_out again.");
+        }
         int seconds = (int) Math.max(1, Math.min(300, args.optInt("seconds", 60)));
         if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
         try {
