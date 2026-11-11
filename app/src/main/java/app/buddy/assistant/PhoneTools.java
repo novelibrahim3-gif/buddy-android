@@ -224,7 +224,7 @@ final class PhoneTools {
         if (!a.optString("label").isEmpty()) i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label"));
         java.util.ArrayList<Integer> days = days(a.optString("days"));
         if (!days.isEmpty()) i.putExtra(AlarmClock.EXTRA_DAYS, days);
-        if (!start(i)) return "The phone's Clock app doesn't take alarms from other apps. Open it with open_app instead.";
+        if (!start(i)) return "Android couldn't open the Clock app to set this alarm. Open Clock manually or try again with Buddy in the foreground.";
         return String.format(Locale.ROOT, "Alarm set for %02d:%02d%s in the Clock app.", h, min,
                 days.isEmpty() ? "" : " (repeating)");
     }
@@ -246,7 +246,7 @@ final class PhoneTools {
         Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, s)
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
         if (!a.optString("label").isEmpty()) i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label"));
-        if (!start(i)) return "The phone's Clock app doesn't take timers from other apps. Open it with open_app instead.";
+        if (!start(i)) return "Android couldn't open the Clock app to start this timer. Open Clock manually or try again with Buddy in the foreground.";
         return "Timer started: " + (s >= 60 ? s / 60 + " min " : "") + (s % 60 > 0 || s < 60 ? s % 60 + " s" : "").trim() + ".";
     }
 
@@ -550,7 +550,7 @@ final class PhoneTools {
                 .putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, allDay);
         if (!a.optString("location").isEmpty()) i.putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, a.optString("location"));
         if (!a.optString("notes").isEmpty()) i.putExtra(android.provider.CalendarContract.Events.DESCRIPTION, a.optString("notes"));
-        if (!start(i)) return "There's no calendar app on the phone that takes new events.";
+        if (!start(i)) return "Android couldn't open a Calendar app to create this event. Open Calendar manually or try again with Buddy in the foreground.";
         return "The Calendar app is open with the event filled in: the user checks it and taps Save. Call read_screen to "
                 + "see it; don't tap Save for them unless they asked you to add it.";
     }
