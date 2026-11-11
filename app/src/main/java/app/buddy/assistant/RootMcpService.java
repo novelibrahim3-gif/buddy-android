@@ -43,12 +43,50 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final java.util.Set<String> SCREEN_ACTIONS = new java.util.HashSet<>(java.util.Arrays.asList(
             "tap", "long_press", "swipe", "scroll", "type_text", "press", "open_app", "open_url",
             "do_steps", "find", "collect"));
+    private static final java.util.Set<String> COUNTED_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "tap", "long_press", "type_text", "scroll", "swipe", "press", "open_app", "open_url",
+            "browser_open", "browser_click", "browser_type", "browser_scroll", "browser_back"));
+    private static final java.util.Set<String> REPEATS_OK = new java.util.HashSet<>(java.util.Arrays.asList(
+            "scroll", "swipe", "browser_scroll"));
+    private static final int MAX_REPEATS = 6;
+    private static final java.util.concurrent.ConcurrentHashMap<String, StepCounter> STEP_COUNTS =
+            new java.util.concurrent.ConcurrentHashMap<>();
+    private static final class StepCounter {
+        String last;
+        int count;
+    }
     private volatile boolean active;
     private McpServer server;
     private PhoneTools phoneTools;
     private BrowserTools browserTools;
     private RootMarksOverlay marksOverlay;
     private final Object marksLock = new Object();
+
+    /** A Buddy chat's new run resets the same-action loop guard. */
+    static void runStarted(String chat) {
+        if (chat != null) STEP_COUNTS.remove(chat);
+    }
+
+    private String countStep(String name, JSONObject args) {
+        String chat = McpServer.CALLER_CHAT.get();
+        if (chat == null || !COUNTED_TOOLS.contains(name)) return null;
+        StepCounter counter = STEP_COUNTS.computeIfAbsent(chat, key -> new StepCounter());
+        String step = name + " " + args;
+        synchronized (counter) {
+            boolean same = step.equals(counter.last) && !REPEATS_OK.contains(name);
+            if (counter.count >= MAX_REPEATS) {
+                return "STOPPED by Buddy: the same action " + MAX_REPEATS
+                        + " times in a row looks like a loop. Stop and tell the user what is done and what remains.";
+            }
+            counter.count = same ? counter.count + 1 : 1;
+            counter.last = step;
+            if (counter.count == MAX_REPEATS) {
+                return "STOPPED by Buddy: the same action " + MAX_REPEATS
+                        + " times in a row looks like a loop. Stop and tell the user what is done and what remains.";
+            }
+        }
+        return null;
+    }
 
     /** Start the standalone MCP server only when Buddy's Accessibility service is off. */
     static void ensure(Context context) {
@@ -342,6 +380,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private JSONObject callToolInternal(String name, JSONObject args) throws Exception {
         String chat = McpServer.CALLER_CHAT.get();
+        String capped = countStep(name, args);
+        if (capped != null) return text(capped);
         if (SCREEN_TOOLS.contains(name) && Background.on(this, chat)) {
             return text("This chat's Background mode uses a separate virtual display that requires Accessibility. "
                     + "It is not available in the standalone KernelSU runtime. Turn Background mode off for this chat "
