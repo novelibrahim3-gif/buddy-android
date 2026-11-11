@@ -9,6 +9,8 @@ import android.content.Intent;
 import android.app.RemoteInput;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -33,6 +35,7 @@ final class RootApproval {
         final CountDownLatch latch = new CountDownLatch(1);
         volatile boolean allow;
         volatile String answer;
+        volatile boolean auto;
     }
 
     private RootApproval() {
@@ -48,6 +51,17 @@ final class RootApproval {
     }
 
     static String request(Context context, String summary) {
+        return request(context, summary, TIMEOUT_MS, 0);
+    }
+
+    static String request(Context context, String summary, long timeoutMs) {
+        return request(context, summary, timeoutMs, 0);
+    }
+
+    /** Optional rule countdown: auto-approve only after the second reviewer has explicitly allowed this action. */
+    static String request(Context context, String summary, long timeoutMs, long autoApproveMs) {
+        timeoutMs = Math.max(1000, Math.min(QUESTION_TIMEOUT_MS, timeoutMs));
+        autoApproveMs = Math.max(0, Math.min(timeoutMs, autoApproveMs));
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (!manager.areNotificationsEnabled()) return "UNAVAILABLE";
         if (Build.VERSION.SDK_INT >= 26) {
@@ -72,7 +86,9 @@ final class RootApproval {
                     .setContentTitle("Approve Buddy action?")
                     .setContentText(summary)
                     .setStyle(new Notification.BigTextStyle().bigText(summary
-                            + "\nThis approval applies to one action only."))
+                            + "\nThis approval applies to one action only."
+                            + (autoApproveMs > 0 ? "\nAuto-approves in " + Math.max(1, (autoApproveMs + 999) / 1000)
+                                    + " seconds unless denied." : "")))
                     .setCategory(Notification.CATEGORY_STATUS)
                     .setVisibility(Notification.VISIBILITY_PRIVATE)
                     .setPublicVersion(new Notification.Builder(context, CHANNEL)
@@ -86,8 +102,19 @@ final class RootApproval {
                     .addAction(new Notification.Action.Builder(null, "Deny", no).build())
                     .build();
             manager.notify(id, notification);
-            boolean answered = pending.latch.await(TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            Handler main = new Handler(Looper.getMainLooper());
+            Runnable auto = autoApproveMs > 0 ? () -> {
+                Pending current = PENDING.get(id);
+                if (current != null) {
+                    current.allow = true;
+                    current.auto = true;
+                    current.latch.countDown();
+                }
+            } : null;
+            if (auto != null) main.postDelayed(auto, autoApproveMs);
+            boolean answered = pending.latch.await(timeoutMs, TimeUnit.MILLISECONDS);
             if (!answered) return "TIMED OUT";
+            if (pending.auto) return "AUTO_APPROVED";
             return pending.allow ? "APPROVED" : "DENIED";
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -103,11 +130,20 @@ final class RootApproval {
      * Returns the exact selected/typed answer, or null when notifications are unavailable or time out.
      */
     static String requestChoice(Context context, String question, List<String> options) {
-        return requestChoice(context, question, options, null);
+        return requestChoice(context, question, options, null, QUESTION_TIMEOUT_MS);
+    }
+
+    static String requestChoice(Context context, String question, List<String> options, long timeoutMs) {
+        return requestChoice(context, question, options, null, timeoutMs);
     }
 
     /** As above, with an optional user-tapped notification destination (used for guided browser steps). */
     static String requestChoice(Context context, String question, List<String> options, Intent contentIntent) {
+        return requestChoice(context, question, options, contentIntent, QUESTION_TIMEOUT_MS);
+    }
+
+    static String requestChoice(Context context, String question, List<String> options, Intent contentIntent, long timeoutMs) {
+        timeoutMs = Math.max(1000, Math.min(QUESTION_TIMEOUT_MS, timeoutMs));
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (!manager.areNotificationsEnabled()) return null;
         if (Build.VERSION.SDK_INT >= 26) {
@@ -133,7 +169,7 @@ final class RootApproval {
                             .setContentText("Unlock your phone to answer.")
                             .build())
                     .setAutoCancel(contentIntent == null)
-                    .setTimeoutAfter(QUESTION_TIMEOUT_MS);
+                    .setTimeoutAfter(timeoutMs);
             if (contentIntent != null) {
                 Intent open = new Intent(contentIntent)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -162,7 +198,7 @@ final class RootApproval {
             PendingIntent deleteAction = PendingIntent.getBroadcast(context, id * 8 + 6, dismissed, flags);
             builder.setDeleteIntent(deleteAction);
             manager.notify(id, builder.build());
-            boolean answered = pending.latch.await(QUESTION_TIMEOUT_MS, TimeUnit.MILLISECONDS);
+            boolean answered = pending.latch.await(timeoutMs, TimeUnit.MILLISECONDS);
             return answered ? pending.answer : null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
