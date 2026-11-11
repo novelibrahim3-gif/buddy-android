@@ -74,7 +74,7 @@ final class PhoneTools {
 
     private void showStatus(String status) {
         if (svc != null) svc.showStatus(status);
-        else if (root != null) root.showBrowserActivity(status);
+        else if (root != null) root.showRuntimeStatus(status);
     }
 
     /** The tools' descriptions, for the agent. */
