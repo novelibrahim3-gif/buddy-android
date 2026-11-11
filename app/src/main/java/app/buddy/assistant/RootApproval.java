@@ -6,17 +6,17 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
-import android.os.Build;
 import android.app.RemoteInput;
+import android.os.Build;
 import android.os.Bundle;
-import java.util.List;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** One-shot, visible notification approval for screen coordinates in Accessibility-off mode. */
+/** One-shot notification approvals and questions for Accessibility-off mode. */
 final class RootApproval {
     static final String CHANNEL = "buddy_root_approval";
     static final String ACTION_ANSWER = "app.buddy.assistant.ROOT_APPROVAL";
@@ -42,7 +42,7 @@ final class RootApproval {
         if (Build.VERSION.SDK_INT < 26) return;
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         NotificationChannel channel = new NotificationChannel(CHANNEL,
-                "Buddy screen action approvals", NotificationManager.IMPORTANCE_HIGH);
+                "Buddy action approvals", NotificationManager.IMPORTANCE_HIGH);
         channel.setDescription("Approve or deny one Buddy action at a time.");
         manager.createNotificationChannel(channel);
     }
@@ -113,7 +113,7 @@ final class RootApproval {
                     .setContentTitle("Buddy asks")
                     .setContentText(question)
                     .setStyle(new Notification.BigTextStyle().bigText(question
-                            + "\\nChoose an answer or use Reply to type your own."))
+                            + "\nChoose an answer or use Reply to type your own."))
                     .setCategory(Notification.CATEGORY_MESSAGE)
                     .setAutoCancel(true)
                     .setTimeoutAfter(QUESTION_TIMEOUT_MS);
