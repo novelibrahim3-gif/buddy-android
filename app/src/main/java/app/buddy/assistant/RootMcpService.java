@@ -134,6 +134,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     @Override
     public void onDestroy() {
         active = false;
+        STEP_COUNTS.clear();
         if (marksOverlay != null) {
             try { marksOverlay.clear(); } catch (Exception ignored) { }
             marksOverlay = null;
