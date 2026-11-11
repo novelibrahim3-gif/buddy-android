@@ -593,7 +593,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
             ChatHub hub = ChatHub.get(this);
             Sessions.Session session = chat == null ? null : hub.sessions.find(chat);
-            if (session != null) hub.note(session, Bubble.Kind.STEP, getString(message, summary.trim()));
+            if (session != null) hub.note(session, Bubble.Kind.STEP,
+                    summary == null || summary.isEmpty() ? getString(message) : getString(message, summary.trim()));
         });
     }
 
@@ -705,8 +706,45 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             Triggers.carryOver(chat);
             return text("Not sent: a newer message arrived in " + note.app + ". A new rule run should handle the latest messages.");
         }
-        String approval = RootApproval.request(this, "Send this exact reply to " + note.who() + " in " + note.app + "?\n" + reply);
-        if (!"APPROVED".equals(approval)) return text("Not sent: " + approval + ".");
+        if (!Guard.takeApproval(true, reply)) {
+            int countdown = Triggers.countdown(chat);
+            boolean instant = Triggers.instant(chat);
+            String why = "";
+            String summary = getString(R.string.tools_card_reply, note.who(), note.app, reply);
+            if (countdown > 0 || instant) {
+                showRuntimeStatus(getString(R.string.rules_status_checking));
+                why = Triggers.review(this, chat, summary);
+                if (why != null) {
+                    countdown = 0;
+                    instant = false;
+                    summary = getString(R.string.tools_card_detail, summary, why);
+                }
+            }
+            if (Triggers.userAnswered(chat)) return text("Not sent: the user has already replied in " + note.app + ".");
+            if (Triggers.wroteAgain(chat)) {
+                Triggers.carryOver(chat);
+                return text("Not sent: a newer message arrived in " + note.app + ". A new rule run should handle the latest messages.");
+            }
+            if (instant) {
+                noteInChat(chat, R.string.card_note_rule_approved, reply);
+            } else {
+                if (countdown == 0 && Triggers.locked(this)) {
+                    Triggers.later(this, chat, reply, why);
+                    noteInChat(chat, R.string.card_note_later, "");
+                    return text("Not sent yet: the phone is locked or the user isn't available. Buddy keeps this reply in the user's Waiting list; do not call reply_notification again.");
+                }
+                String approval = RootApproval.request(this, summary, (countdown + 60L) * 1000L,
+                        countdown > 0 ? countdown * 1000L : 0);
+                if ("TIMED OUT".equals(approval) || "UNAVAILABLE".equals(approval)) {
+                    Triggers.later(this, chat, reply, why);
+                    noteInChat(chat, R.string.card_note_later, "");
+                    return text("Not sent yet: the user didn't approve in time. Buddy keeps this reply in the user's Waiting list; do not call reply_notification again.");
+                }
+                if (!"APPROVED".equals(approval) && !"AUTO_APPROVED".equals(approval)) {
+                    return text("Not sent: " + approval + ". Do not retry unless the user asks.");
+                }
+            }
+        }
         if (Triggers.userAnswered(chat)) return text("Not sent: the user replied while approval was pending.");
         if (Triggers.wroteAgain(chat)) {
             Triggers.carryOver(chat);
