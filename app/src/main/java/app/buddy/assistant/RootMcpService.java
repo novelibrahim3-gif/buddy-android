@@ -122,7 +122,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for a vision-capable client to inspect; no OCR or element selectors; "
                 + "wait_for can match the foreground app via Android system diagnostics and/or wait for 700 ms of visual stability; text/gone matching still needs OCR. "
-                + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
+                + "ask.highlight and point_out accept coordinate marks only and cannot detect completion; the user answers ask manually. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
@@ -228,7 +228,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
         tools.put(tool("ask",
                 "Ask the user a question through a notification with 2 to 4 answer buttons and an optional typed reply. "
-                        + "Optional highlight accepts coordinate marks only and needs Display over other apps permission.",
+                        + "Optional highlight accepts coordinate marks only, needs Display over other apps permission, and cannot detect completion; the user answers manually.",
                 new JSONObject().put("question", stringProperty("Short, clear question"))
                         .put("options", new JSONObject().put("type", "array").put("minItems", 2).put("maxItems", 4)
                                 .put("items", stringProperty("One short answer choice")))
