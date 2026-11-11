@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -207,6 +208,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int x = args.getInt("x"), y = args.getInt("y");
                 String approval = RootApproval.request(this, "Tap screen coordinate (" + x + ", " + y + ")?");
                 if (!"APPROVED".equals(approval)) return text("Tap not performed: " + approval + ".");
+                requireUnlocked();
                 RootControl.tap(this, x, y);
                 return text("Tapped (" + x + ", " + y + ") using KernelSU.");
             }
@@ -215,6 +217,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int duration = (int) Math.max(250, Math.min(5000, args.optLong("duration_ms", 700)));
                 String approval = RootApproval.request(this, "Long-press (" + x + ", " + y + ") for " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Long-press not performed: " + approval + ".");
+                requireUnlocked();
                 RootControl.longPress(this, x, y, duration);
                 return text("Long-pressed (" + x + ", " + y + ") using KernelSU.");
             }
@@ -225,6 +228,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String approval = RootApproval.request(this, "Swipe from (" + x1 + ", " + y1 + ") to ("
                         + x2 + ", " + y2 + ") over " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Swipe not performed: " + approval + ".");
+                requireUnlocked();
                 RootControl.swipe(this, x1, y1, x2, y2, duration);
                 return text("Swiped using KernelSU.");
             }
@@ -242,6 +246,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 }
                 String approval = RootApproval.request(this, "Scroll " + direction + " across the center of the screen?");
                 if (!"APPROVED".equals(approval)) return text("Scroll not performed: " + approval + ".");
+                requireUnlocked();
                 RootControl.swipe(this, x1, y1, x2, y2, 350);
                 return text("Scrolled " + direction + " using KernelSU.");
             }
@@ -259,10 +264,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 }
                 String approval = RootApproval.request(this, "Type exactly: " + value);
                 if (!"APPROVED".equals(approval)) return text("Text not entered: " + approval + ".");
+                requireUnlocked();
                 RootControl.typeText(value);
                 return text("Inserted " + value.length() + " characters using KernelSU.");
             }
             case "press":
+                requireUnlocked();
                 RootControl.pressSystemButton(args.getString("button"));
                 return text("Pressed " + args.getString("button") + " using KernelSU.");
             case "do_steps":
@@ -275,6 +282,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             default:
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
+        }
+    }
+
+    private void requireUnlocked() {
+        KeyguardManager keyguard = getSystemService(KeyguardManager.class);
+        if (keyguard != null && keyguard.isKeyguardLocked()) {
+            throw new IllegalStateException("The phone is locked. Unlock it before using root screen tools.");
         }
     }
 
@@ -314,6 +328,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private JSONObject screenImage() throws Exception {
+        requireUnlocked();
         byte[] png = RootControl.screenshot(this);
         android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
@@ -354,6 +369,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private String openApp(String query) {
+        requireUnlocked();
         String wanted = query == null ? "" : query.trim();
         if (wanted.isEmpty()) throw new IllegalArgumentException("App name or package is required.");
         PackageManager pm = getPackageManager();
@@ -388,6 +404,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private String openUrl(String value) {
+        requireUnlocked();
         Uri uri = Uri.parse(value == null ? "" : value.trim());
         String scheme = uri.getScheme();
         if (scheme == null) throw new IllegalArgumentException("The URL must include an allowed scheme.");
