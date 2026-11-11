@@ -869,6 +869,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private boolean screenIsOn() {
+        android.hardware.display.DisplayManager displays =
+                getSystemService(android.hardware.display.DisplayManager.class);
+        android.view.Display display = displays == null ? null
+                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        return display != null && display.getState() == android.view.Display.STATE_ON;
+    }
+
     private void requireUnlocked(String tool) throws InterruptedException {
         String waiting = Schedules.awaitUnlock(this, McpServer.CALLER_CHAT.get(), tool);
         if (waiting != null) throw new IllegalStateException(waiting);
@@ -876,12 +884,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private void requireUnlocked() {
-        android.hardware.display.DisplayManager displays =
-                getSystemService(android.hardware.display.DisplayManager.class);
-        android.view.Display display = displays == null ? null
-                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
-        boolean screenOn = display != null && display.getState() == android.view.Display.STATE_ON;
+        boolean screenOn = screenIsOn();
         if (!screenOn || (keyguard != null && keyguard.isKeyguardLocked())) {
             throw new IllegalStateException("The screen is off or the phone is locked. Turn the screen on and unlock it before using root screen tools.");
         }
@@ -946,12 +950,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private String rootStatus() {
         boolean root = RootControl.available();
-        android.hardware.display.DisplayManager displays =
-                getSystemService(android.hardware.display.DisplayManager.class);
-        android.view.Display display = displays == null ? null
-                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
         android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
-        boolean screenOn = display != null && display.getState() == android.view.Display.STATE_ON;
+        boolean screenOn = screenIsOn();
         boolean unlocked = screenOn && (keyguard == null || !keyguard.isKeyguardLocked());
         NotificationManager notifications = getSystemService(NotificationManager.class);
         boolean approvals = notifications != null && notifications.areNotificationsEnabled();
