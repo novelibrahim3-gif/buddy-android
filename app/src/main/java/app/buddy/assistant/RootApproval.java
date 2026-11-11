@@ -98,7 +98,8 @@ final class RootApproval {
                             .setContentTitle("Buddy needs your approval")
                             .setContentText("Unlock your phone to review this action.")
                             .build())
-                    .setAutoCancel(true)
+                    .setAutoCancel(autoApproveMs == 0)
+                    .setDeleteIntent(no) // dismissing a countdown approval is a denial, never an implicit approval
                     .setTimeoutAfter(timeoutMs)
                     .addAction(approveAction.build())
                     .addAction(new Notification.Action.Builder(null, "Deny", no).build())
