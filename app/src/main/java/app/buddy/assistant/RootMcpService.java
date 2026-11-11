@@ -40,6 +40,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
     private McpServer server;
+    private RootMarksOverlay marksOverlay;
 
     /** Start the standalone MCP server only when Buddy's Accessibility service is off. */
     static void ensure(Context context) {
@@ -73,6 +74,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public void onDestroy() {
+        if (marksOverlay != null) {
+            try { marksOverlay.clear(); } catch (Exception ignored) { }
+            marksOverlay = null;
+        }
         if (server != null) {
             server.stop();
             server = null;
@@ -119,7 +124,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
-                + "point_out is unavailable without the overlay/element map; reply_notification works only in an active notification-rule chat "
+                + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
                 + "the user enables Phone commands and Linux tools; it is not a sandbox. Never enter passwords, one-time codes, "
                 + "payment details or secrets.";
@@ -218,6 +223,17 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("question", stringProperty("Short, clear question"))
                         .put("options", new JSONObject().put("type", "array").put("minItems", 2).put("maxItems", 4)
                                 .put("items", stringProperty("One short answer choice"))), "question", "options"));
+        tools.put(tool("point_out",
+                "Show up to six coordinate-only, non-touchable overlay marks. Requires Android Display over other apps permission. "
+                        + "No element ids or completion detection; wait=true is unsupported.",
+                new JSONObject().put("marks", new JSONObject().put("type", "array").put("maxItems", 6)
+                        .put("items", new JSONObject().put("type", "object")
+                                .put("properties", new JSONObject().put("x", integerProperty("Screen X"))
+                                        .put("y", integerProperty("Screen Y")).put("label", stringProperty("Optional short label")))
+                                .put("required", new JSONArray().put("x").put("y"))))
+                        .put("style", new JSONObject().put("type", "string").put("enum", new JSONArray().put("box").put("circle").put("arrow")))
+                        .put("seconds", integerProperty("1 to 300 seconds, default 60"))
+                        .put("wait", new JSONObject().put("type", "boolean").put("description", "Must be false; completion cannot be detected"))), "marks"));
         tools.put(tool("notify",
                 "Update the persistent Buddy root-runtime notification with a short status message.",
                 new JSONObject().put("text", stringProperty("Status text, max 180 characters")), "text"));
@@ -391,6 +407,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                         ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
                         : "ANSWER: “" + answer + "”");
             }
+            case "point_out":
+                return pointOut(args);
             case "notify": {
                 String status = args.getString("text").trim();
                 if (status.isEmpty()) throw new IllegalArgumentException("Give a status message.");
@@ -420,6 +438,44 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private JSONObject pointOut(JSONObject args) throws Exception {
+        JSONArray values = args.optJSONArray("marks");
+        if (values == null) throw new IllegalArgumentException("Give a marks array; use an empty array to clear existing marks.");
+        if (values.length() == 0) {
+            if (marksOverlay != null) marksOverlay.clear();
+            return text("Marks removed.");
+        }
+        if (values.length() > 6) throw new IllegalArgumentException("At most six coordinate marks are supported.");
+        if (args.optBoolean("wait", false)) throw new IllegalArgumentException("Root-only point_out cannot wait for completion; it can only display coordinate guides.");
+        requireUnlocked();
+        if (!android.provider.Settings.canDrawOverlays(this)) {
+            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call point_out again.");
+        }
+        String style = args.optString("style", "box");
+        if (!("box".equals(style) || "circle".equals(style) || "arrow".equals(style))) {
+            throw new IllegalArgumentException("Style must be box, circle or arrow.");
+        }
+        java.util.ArrayList<RootMarksOverlay.Mark> marks = new java.util.ArrayList<>();
+        for (int i = 0; i < values.length(); i++) {
+            JSONObject item = values.getJSONObject(i);
+            int x = item.getInt("x"), y = item.getInt("y");
+            requirePoint(x, y);
+            String label = item.optString("label", "").trim();
+            if (label.length() > 64) throw new IllegalArgumentException("Mark labels are limited to 64 characters.");
+            marks.add(new RootMarksOverlay.Mark(x, y, label));
+        }
+        int seconds = (int) Math.max(1, Math.min(300, args.optInt("seconds", 60)));
+        if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
+        try {
+            marksOverlay.show(marks, style, seconds * 1000L);
+        } catch (SecurityException e) {
+            return text("Android refused the overlay. Enable Display over other apps for Buddy in Settings, then retry.");
+        }
+        return text("Showing " + marks.size() + " coordinate mark(s) for up to " + seconds
+                + " seconds. These are visual guides only; Buddy cannot detect when the user completes them.");
+    }
     private JSONObject replyNotification(String value) throws Exception {
         String chat = McpServer.CALLER_CHAT.get();
         Triggers.Note note = Triggers.note(chat);
