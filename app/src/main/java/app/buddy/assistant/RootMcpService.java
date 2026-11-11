@@ -1105,7 +1105,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             Prefs.setGrokModels(this, grok.toString());
             Models.set("grok", grok.toString());
         }
-        // Chat transcript/monitor events need BuddyService's chat UI and are intentionally not consumed here.
+        // Chat transcript/monitor events need the app's chat UI and are intentionally not consumed here.
     }
 
     @Override
