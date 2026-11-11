@@ -48,6 +48,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public void onCreate() {
         super.onCreate();
         createChannel();
+        RootApproval.ensureChannel(this);
         Notification notification = new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle(getString(R.string.app_name))
@@ -97,12 +98,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public String instructions() {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools are read_screen/screenshot (an image of the real display), root_status, "
-                + "list_apps, open_app, open_url and press (fixed Android navigation buttons). "
-                + "Interpret read_screen visually; it does not return UI element ids or OCR text. "
-                + "Do not invent unavailable tools. tap, long_press, swipe, type_text, find, collect, "
-                + "wait_for, do_steps and approval cards are intentionally unavailable in this runtime "
-                + "until their safety checks can be preserved without Accessibility. Never enter passwords, "
-                + "one-time codes or payment details.";
+                + "list_apps, open_app, open_url, press and wait. tap, long_press, swipe and scroll are also "
+                + "available, but every coordinate action requires a one-time Approve/Deny notification. "
+                + "If notifications are disabled, those actions are refused. Interpret read_screen visually; "
+                + "it does not return UI element ids or OCR text. type_text, find, collect, wait_for and do_steps "
+                + "remain unavailable. Never enter passwords, one-time codes or payment details.";
     }
 
     @Override
@@ -128,6 +128,25 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 "Open a web URL or supported Android deep link in its registered app. Allowed schemes: https, http, "
                         + "mailto, tel, geo and market. Opening a link does not submit a message or place a call.",
                 new JSONObject().put("url", stringProperty("URL or supported deep link")), "url"));
+        tools.put(tool("tap",
+                "Tap a screen coordinate. Buddy sends a notification showing the requested coordinate and waits for "
+                        + "the user to approve this one tap. Check the latest read_screen image before approving.",
+                new JSONObject().put("x", integerProperty("X screen coordinate"))
+                        .put("y", integerProperty("Y screen coordinate")), "x", "y"));
+        tools.put(tool("long_press",
+                "Long-press a screen coordinate. Buddy requires a separate one-time notification approval.",
+                new JSONObject().put("x", integerProperty("X screen coordinate"))
+                        .put("y", integerProperty("Y screen coordinate"))
+                        .put("duration_ms", integerProperty("Duration, 250 to 5000 ms")) , "x", "y"));
+        tools.put(tool("swipe",
+                "Swipe between two screen coordinates. Buddy requires a separate one-time notification approval.",
+                new JSONObject().put("x1", integerProperty("Start X")).put("y1", integerProperty("Start Y"))
+                        .put("x2", integerProperty("End X")).put("y2", integerProperty("End Y"))
+                        .put("duration_ms", integerProperty("Duration, 50 to 5000 ms")), "x1", "y1", "x2", "y2"));
+        tools.put(tool("scroll",
+                "Scroll in a direction from the center of the display. Buddy requires a one-time notification approval.",
+                new JSONObject().put("direction", new JSONObject().put("type", "string")
+                        .put("enum", new JSONArray().put("up").put("down").put("left").put("right"))), "direction"));
         tools.put(tool("press",
                 "Use a fixed Android system navigation action: back, home, recents, notifications or quick_settings.",
                 new JSONObject().put("button", new JSONObject().put("type", "string")
@@ -155,6 +174,48 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text(openApp(args.getString("app")));
             case "open_url":
                 return text(openUrl(args.getString("url")));
+            case "tap": {
+                int x = args.getInt("x"), y = args.getInt("y");
+                String approval = RootApproval.request(this, "Tap screen coordinate (" + x + ", " + y + ")?");
+                if (!"APPROVED".equals(approval)) return text("Tap not performed: " + approval + ".");
+                RootControl.tap(this, x, y);
+                return text("Tapped (" + x + ", " + y + ") using KernelSU.");
+            }
+            case "long_press": {
+                int x = args.getInt("x"), y = args.getInt("y");
+                int duration = (int) Math.max(250, Math.min(5000, args.optLong("duration_ms", 700)));
+                String approval = RootApproval.request(this, "Long-press (" + x + ", " + y + ") for " + duration + " ms?");
+                if (!"APPROVED".equals(approval)) return text("Long-press not performed: " + approval + ".");
+                RootControl.longPress(this, x, y, duration);
+                return text("Long-pressed (" + x + ", " + y + ") using KernelSU.");
+            }
+            case "swipe": {
+                int x1 = args.getInt("x1"), y1 = args.getInt("y1");
+                int x2 = args.getInt("x2"), y2 = args.getInt("y2");
+                int duration = (int) Math.max(50, Math.min(5000, args.optLong("duration_ms", 300)));
+                String approval = RootApproval.request(this, "Swipe from (" + x1 + ", " + y1 + ") to ("
+                        + x2 + ", " + y2 + ") over " + duration + " ms?");
+                if (!"APPROVED".equals(approval)) return text("Swipe not performed: " + approval + ".");
+                RootControl.swipe(this, x1, y1, x2, y2, duration);
+                return text("Swiped using KernelSU.");
+            }
+            case "scroll": {
+                String direction = args.getString("direction");
+                android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+                int cx = dm.widthPixels / 2, cy = dm.heightPixels / 2;
+                int x1 = cx, y1 = cy, x2 = cx, y2 = cy;
+                switch (direction) {
+                    case "up": y1 = dm.heightPixels * 3 / 4; y2 = dm.heightPixels / 4; break;
+                    case "down": y1 = dm.heightPixels / 4; y2 = dm.heightPixels * 3 / 4; break;
+                    case "left": x1 = dm.widthPixels * 3 / 4; x2 = dm.widthPixels / 4; break;
+                    case "right": x1 = dm.widthPixels / 4; x2 = dm.widthPixels * 3 / 4; break;
+                    default: throw new IllegalArgumentException("Unsupported scroll direction: " + direction);
+                }
+                String approval = RootApproval.request(this, "Scroll " + direction + " across the center of the screen?");
+                if (!"APPROVED".equals(approval)) return text("Scroll not performed: " + approval + ".");
+                RootControl.swipe(this, x1, y1, x2, y2, 350);
+                return text("Scrolled " + direction + " using KernelSU.");
+            }
             case "press":
                 RootControl.pressSystemButton(args.getString("button"));
                 return text("Pressed " + args.getString("button") + " using KernelSU.");
