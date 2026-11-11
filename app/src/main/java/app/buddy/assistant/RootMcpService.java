@@ -392,6 +392,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 JSONArray choices = args.getJSONArray("options");
                 if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
                 if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
+                java.util.ArrayList<String> options = new java.util.ArrayList<>();
+                for (int i = 0; i < choices.length(); i++) {
+                    String option = choices.optString(i).trim();
+                    if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
+                    options.add(option);
+                }
                 JSONArray highlight = args.optJSONArray("highlight");
                 boolean showingMarks = highlight != null && highlight.length() > 0;
                 if (showingMarks) {
@@ -400,12 +406,6 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                     java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
                     if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
                     marksOverlay.show(marks, "box", 5 * 60_000L);
-                }
-                java.util.ArrayList<String> options = new java.util.ArrayList<>();
-                for (int i = 0; i < choices.length(); i++) {
-                    String option = choices.optString(i).trim();
-                    if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
-                    options.add(option);
                 }
                 try {
                     String answer = RootApproval.requestChoice(this, question, options);
