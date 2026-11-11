@@ -37,6 +37,9 @@ import java.net.URL;
 public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
+    private static final java.util.Set<String> SCREEN_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "read_screen", "screenshot", "tap", "long_press", "swipe", "scroll", "type_text", "press",
+            "open_app", "open_url", "do_steps", "find", "collect", "wait_for", "point_out"));
     private volatile boolean active;
     private McpServer server;
     private PhoneTools phoneTools;
@@ -137,6 +140,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "list_scheduled, cancel_scheduled, phone_shell, reply_notification, clipboard_read/write, set_alarm, set_timer, share, "
                 + "save_to_downloads, device_status, take_photo, notifications, media, calendar_events, add_calendar_event and location. "
                 + "Clipboard and location are approval-gated; camera, calendar and location may request Android permissions. " 
+                + "Phone screen tools operate only on the real display; if this chat has Background mode enabled, turn it off first "
+                + "because its separate virtual display still requires Accessibility. browser_* is independent. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, approval actions are refused. Screen actions are blocked while locked or off; scheduled runs first ask the user to unlock and wait, then recheck before acting. "
@@ -316,6 +321,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
+        String chat = McpServer.CALLER_CHAT.get();
+        if (SCREEN_TOOLS.contains(name) && Background.on(this, chat)) {
+            return text("This chat's Background mode uses a separate virtual display that requires Accessibility. "
+                    + "It is not available in the standalone KernelSU runtime. Turn Background mode off for this chat "
+                    + "before using phone screen tools; browser_* remains available independently.");
+        }
         if (name != null && name.startsWith("browser_")) {
             if (!Browser.available(this)) {
                 return text("The background browser is off. Enable Background browser in Buddy's Settings, then retry.");
@@ -550,6 +561,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
         JSONArray highlight = args.optJSONArray("highlight");
         boolean showingMarks = highlight != null && highlight.length() > 0;
+        if (showingMarks && Background.on(this, chat)) {
+            return text("Coordinate highlights are not available while this chat's Background mode is on. Turn it off, then retry ask.");
+        }
         if (!showingMarks) {
             String answer = RootApproval.requestChoice(this, question, options, timeout);
             return text(answer == null || answer.isEmpty()
