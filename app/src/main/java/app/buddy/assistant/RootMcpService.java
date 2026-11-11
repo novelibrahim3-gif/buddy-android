@@ -119,7 +119,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
-                + "Never enter passwords, one-time codes, payment details or secrets.";
+                + "point_out is unavailable without the overlay/element map; reply_notification is not migrated; "
+                + "phone_shell is intentionally not exposed in root mode. Never enter passwords, one-time codes, "
+                + "payment details or secrets.";
     }
 
     @Override
