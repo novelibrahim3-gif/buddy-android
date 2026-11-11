@@ -114,14 +114,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public String instructions() {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
-                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, point_out, notify, "
+                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, find, collect, type_text, confirm, ask, point_out, notify, "
                 + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
                 + "list_scheduled, cancel_scheduled, phone_shell and reply_notification (the last two require their user settings/rule context). "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
                 + "read_screen has no UI element ids "
-                + "and no OCR text: inspect its image visually. find/collect are not exposed because they need element/text extraction unavailable without Accessibility/OCR; "
+                + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for model-side visual reading; no OCR or element selectors; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
@@ -206,6 +206,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                                 .put("app", stringProperty("App name or package"))
                                 .put("url", stringProperty("URL or supported deep link"))
                                 .put("ms", integerProperty("Wait duration"))).put("required", new JSONArray().put("action")))), "steps"));
+        tools.put(tool("find",
+                "Visual search: return up to four screenshots while scrolling. The agent inspects images for the query; no OCR and no automatic match detection. Each scroll requires approval.",
+                new JSONObject().put("text", stringProperty("Text to look for visually, max 200 characters"))
+                        .put("direction", directionProperty()).put("max_pages", integerProperty("1 to 4 screenshots, default 4")), "text"));
+        tools.put(tool("collect",
+                "Visual collection: return up to four screenshots while scrolling. The agent reads visible text from the images; no OCR. Each scroll requires approval.",
+                new JSONObject().put("direction", directionProperty())
+                        .put("max_pages", integerProperty("1 to 4 screenshots, default 4"))));
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
@@ -371,6 +379,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text("Pressed " + args.getString("button") + " using KernelSU.");
             case "do_steps":
                 return doSteps(args.getJSONArray("steps"));
+            case "find":
+            case "collect":
+                return visualScan(name, args);
             case "wait": {
                 long ms = Math.max(0, Math.min(10000, args.optLong("ms", 1000)));
                 Thread.sleep(ms);
@@ -689,6 +700,55 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private JSONObject visualScan(String mode, JSONObject args) throws Exception {
+        requireUnlocked();
+        if (args.has("element")) throw new IllegalArgumentException("Root-only visual scans do not accept Accessibility element ids.");
+        String query = "";
+        if ("find".equals(mode)) {
+            query = args.getString("text").trim();
+            if (query.isEmpty()) throw new IllegalArgumentException("Give the text to look for visually.");
+            if (query.length() > 200) throw new IllegalArgumentException("Visual search text is limited to 200 characters.");
+        }
+        String direction = args.optString("direction", "down");
+        if (!("up".equals(direction) || "down".equals(direction) || "left".equals(direction) || "right".equals(direction))) {
+            throw new IllegalArgumentException("Direction must be up, down, left or right.");
+        }
+        int maxPages = (int) Math.max(1, Math.min(4, args.optInt("max_pages", 4)));
+        JSONArray content = new JSONArray();
+        content.put(new JSONObject().put("type", "text").put("text", "find".equals(mode)
+                ? "Visual search for: " + query + ". Screenshots follow in scroll order; inspect them yourself. No OCR is performed."
+                : "Visual collection. Screenshots follow in scroll order; read visible text from the images. No OCR is performed."));
+        String previous = null;
+        int captured = 0, scrolled = 0;
+        for (int page = 0; page < maxPages; page++) {
+            requireUnlocked();
+            byte[] png = RootControl.screenshot(this);
+            String current = fingerprint(png);
+            if (current.equals(previous)) {
+                content.put(new JSONObject().put("type", "text").put("text", "Stopped: the display did not change after the last approved scroll; likely the end of this content."));
+                break;
+            }
+            previous = current;
+            content.put(new JSONObject().put("type", "image").put("mimeType", "image/png")
+                    .put("data", Base64.encodeToString(png, Base64.NO_WRAP)));
+            captured++;
+            content.put(new JSONObject().put("type", "text").put("text", "Screenshot page " + captured + " in scroll order."));
+            if (page + 1 >= maxPages) break;
+            JSONObject scrollResult = callTool("scroll", new JSONObject().put("direction", direction));
+            JSONArray scrollContent = scrollResult.optJSONArray("content");
+            JSONObject first = scrollContent == null ? null : scrollContent.optJSONObject(0);
+            String scrollMessage = first == null ? "No scroll result." : first.optString("text", "No scroll result.");
+            if (!scrollMessage.startsWith("Scrolled")) {
+                content.put(new JSONObject().put("type", "text").put("text", "Scan stopped after " + captured + " screenshot(s): " + scrollMessage));
+                break;
+            }
+            scrolled++;
+        }
+        content.put(new JSONObject().put("type", "text").put("text", "Captured " + captured + " screenshot page(s) after "
+                + scrolled + " approved scroll(s). This is model-side visual reading, not OCR or element extraction."));
+        return new JSONObject().put("content", content);
+    }
+
     private JSONObject waitFor(JSONObject args) throws Exception {
         if (!args.optBoolean("settled", false)) {
             throw new IllegalArgumentException("Set settled=true. Root mode cannot match text, gone text or foreground app.");
@@ -722,7 +782,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private String screenFingerprint() throws Exception {
-        byte[] png = RootControl.screenshot(this);
+        return fingerprint(RootControl.screenshot(this));
+    }
+
+    private String fingerprint(byte[] png) throws Exception {
         return Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(png), Base64.NO_WRAP);
     }
 
@@ -880,6 +943,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             schema.put("required", req);
         }
         return new JSONObject().put("name", name).put("description", description).put("inputSchema", schema);
+    }
+
+    private static JSONObject directionProperty() throws JSONException {
+        return new JSONObject().put("type", "string")
+                .put("enum", new JSONArray().put("down").put("up").put("left").put("right"))
+                .put("description", "Scroll direction; each scroll asks the user for approval.");
     }
 
     private static JSONObject coordinateMarksProperty(String description) throws JSONException {
