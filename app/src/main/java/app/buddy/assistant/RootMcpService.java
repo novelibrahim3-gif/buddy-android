@@ -39,6 +39,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
     private McpServer server;
+    private BrowserTools browserTools;
     private RootMarksOverlay marksOverlay;
     private final Object marksLock = new Object();
 
@@ -59,6 +60,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         createChannel();
         RootApproval.ensureChannel(this);
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
+        browserTools = new BrowserTools(this);
         server = new McpServer(Prefs.token(this), this);
         server.start();
         // Restore scheduled chat/reminder alarms even when the Accessibility service is disabled.
@@ -102,6 +104,15 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    void showBrowserActivity(String status) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+        if (manager != null && manager.areNotificationsEnabled()) {
+            String safe = status == null ? "Browsing" : status;
+            if (safe.length() > 180) safe = safe.substring(0, 180);
+            manager.notify(NOTIFICATION_ID, runtimeNotification(safe));
+        }
+    }
+
     private Notification runtimeNotification(String status) {
         return new Notification.Builder(this, CHANNEL)
                 .setSmallIcon(R.mipmap.ic_launcher)
@@ -131,7 +142,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
                 + "the user enables Phone commands and Linux tools; it is not a sandbox. Never enter passwords, one-time codes, "
-                + "payment details or secrets.";
+                + "payment details or secrets."
+                + (Browser.available(this) ? " Background browser tools browser_open/read/click/type/scroll/screenshot/back/tabs are also available; "
+                        + "they use Buddy's headless Chromium and one-shot approvals for risky page actions." : "");
     }
 
     @Override
@@ -285,11 +298,19 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("cancel_scheduled",
                 "Cancel a scheduled message in the current Buddy chat.",
                 new JSONObject().put("id", stringProperty("Scheduled message id")), "id"));
+        if (Browser.available(this)) BrowserTools.list(tools);
         return tools;
     }
 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
+        if (name != null && name.startsWith("browser_")) {
+            if (!Browser.available(this)) {
+                return text("The background browser is off. Enable Background browser in Buddy's Settings, then retry.");
+            }
+            if (browserTools == null) browserTools = new BrowserTools(this);
+            return browserTools.call(name, args);
+        }
         switch (name) {
             case "read_screen":
             case "screenshot":
