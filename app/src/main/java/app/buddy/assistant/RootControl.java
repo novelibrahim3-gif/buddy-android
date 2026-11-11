@@ -113,23 +113,33 @@ final class RootControl {
         } catch (IOException e) {
             throw new IOException("KernelSU/su could not be started. Grant Buddy root access in KernelSU, then retry.", e);
         }
-        boolean finished;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        Thread drain = new Thread(() -> {
+            try (java.io.InputStream in = process.getInputStream()) {
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = in.read(buffer)) != -1) {
+                    synchronized (captured) {
+                        int remaining = 32 * 1024 - captured.size();
+                        if (remaining > 0) captured.write(buffer, 0, Math.min(n, remaining));
+                    }
+                    // Keep draining even after the diagnostic cap so the child cannot block on a full pipe.
+                }
+            } catch (IOException ignored) {
+            }
+        }, "buddy-root-output");
+        drain.setDaemon(true);
+        drain.start();
         try {
-            finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            boolean finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
             if (!finished) {
                 process.destroyForcibly();
                 throw new IOException("Root command timed out.");
             }
+            drain.join(1000);
             byte[] output;
-            try (java.io.InputStream in = process.getInputStream();
-                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                byte[] buffer = new byte[4096];
-                int n;
-                while ((n = in.read(buffer)) != -1) {
-                    if (out.size() + n > 32 * 1024) break;
-                    out.write(buffer, 0, n);
-                }
-                output = out.toByteArray();
+            synchronized (captured) {
+                output = captured.toByteArray();
             }
             String message = new String(output, StandardCharsets.UTF_8).trim();
             if (process.exitValue() != 0) {
