@@ -2152,6 +2152,16 @@ final class Tools {
             if (full == null) return text("The background screen shows nothing yet. Open an app with open_app first.");
             return picture(full);
         }
+        // Root screencap does not call AccessibilityService.takeScreenshot and is the preferred
+        // real-display capture path on KernelSU devices. Keep the old API as a compatibility fallback.
+        try {
+            byte[] png = RootControl.screenshot(svc);
+            Bitmap full = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+            if (full != null) return picture(full);
+            android.util.Log.w("BuddyRoot", "KernelSU screencap returned bytes Android could not decode.");
+        } catch (java.io.IOException rootUnavailable) {
+            android.util.Log.i("BuddyRoot", "Root screenshot unavailable; using Accessibility screenshot", rootUnavailable);
+        }
         try {
             return screenshotOnce();
         } catch (IllegalStateException e) { // too soon after "View steps" took its own: once more, a second later
