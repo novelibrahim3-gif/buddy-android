@@ -132,7 +132,7 @@ final class RootApproval {
                             .setContentTitle("Buddy has a question")
                             .setContentText("Unlock your phone to answer.")
                             .build())
-                    .setAutoCancel(true)
+                    .setAutoCancel(contentIntent == null)
                     .setTimeoutAfter(QUESTION_TIMEOUT_MS);
             if (contentIntent != null) {
                 Intent open = new Intent(contentIntent)
