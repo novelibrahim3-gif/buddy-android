@@ -208,7 +208,7 @@ final class PhoneTools {
             }
             done.countDown();
         });
-        done.await(5, TimeUnit.SECONDS);
+        if (!done.await(5, TimeUnit.SECONDS)) return "Couldn't copy: Android's main thread did not respond in time.";
         return err.get() == null ? "Copied: the user can paste it now." : "Couldn't copy: " + err.get();
     }
 
