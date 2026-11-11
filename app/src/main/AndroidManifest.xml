@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <!-- Background mode only: never asked of the user; Buddy's own adb grants it when they pair it with Wireless
          debugging, so Buddy can switch Wireless debugging on again after a restart of the phone. -->
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
@@ -245,6 +247,16 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:taskAffinity="" />
+
+        <!-- Standalone local MCP runtime used only when Buddy's Accessibility service is disabled. -->
+        <service
+            android:name=".RootMcpService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Local MCP server for user-directed, KernelSU-backed device inspection and control" />
+        </service>
 
         <service
             android:name=".BuddyService"
