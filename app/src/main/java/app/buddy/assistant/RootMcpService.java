@@ -428,7 +428,37 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public void onEvent(JSONObject event) {
-        // The standalone runtime does not own chat UI/session state. Unknown helper events are safely ignored.
+        if (!"buddy_pong".equals(event.optString("type"))) return;
+        Prefs.setHelperStatus(this, event.optString("text"));
+        Prefs.setHelperVersion(this, event.optInt("helper", 1));
+        if (event.has("signed")) Prefs.setSignedAgents(this, event.optString("signed"));
+        JSONArray claude = event.optJSONArray("claude_models");
+        if (claude != null && claude.length() > 0) {
+            Prefs.setClaudeModels(this, claude.toString(), event.optString("claude_default"));
+            Models.set("claude", claude.toString());
+            Models.setClaudeDefault(event.optString("claude_default"));
+        }
+        JSONArray codex = event.optJSONArray("codex_models");
+        if (codex != null && codex.length() > 0) {
+            Prefs.setCodexModels(this, codex.toString());
+            Models.set("codex", codex.toString());
+        }
+        JSONArray opencode = event.optJSONArray("opencode_models");
+        if (opencode != null && opencode.length() > 0) {
+            Prefs.setOpencodeModels(this, opencode.toString());
+            Models.set("opencode", opencode.toString());
+        }
+        JSONArray agy = event.optJSONArray("agy_models");
+        if (agy != null && agy.length() > 0) {
+            Prefs.setAgyModels(this, agy.toString());
+            Models.set("agy", agy.toString());
+        }
+        JSONArray grok = event.optJSONArray("grok_models");
+        if (grok != null && grok.length() > 0) {
+            Prefs.setGrokModels(this, grok.toString());
+            Models.set("grok", grok.toString());
+        }
+        // Chat transcript/monitor events need BuddyService's chat UI and are intentionally not consumed here.
     }
 
     @Override
