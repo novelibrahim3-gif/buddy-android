@@ -739,6 +739,15 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 break;
             }
             scrolled++;
+            JSONObject settled = waitFor(new JSONObject().put("settled", true).put("timeout_ms", 4000));
+            JSONArray settleContent = settled.optJSONArray("content");
+            JSONObject settleFirst = settleContent == null ? null : settleContent.optJSONObject(0);
+            String settleMessage = settleFirst == null ? "No screen-settle result." : settleFirst.optString("text", "No screen-settle result.");
+            if (!settleMessage.startsWith("OK")) {
+                content.put(new JSONObject().put("type", "text").put("text", "Scan stopped after " + captured
+                        + " screenshot(s): " + settleMessage));
+                break;
+            }
         }
         content.put(new JSONObject().put("type", "text").put("text", "Captured " + captured + " screenshot page(s) after "
                 + scrolled + " approved scroll(s). This is model-side visual reading, not OCR or element extraction."));
