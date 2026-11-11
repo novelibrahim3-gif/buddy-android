@@ -186,7 +186,9 @@ final class RootApproval {
                 Intent choice = new Intent(context, RootApprovalReceiver.class)
                         .setAction(ACTION_ANSWER).putExtra(EXTRA_ID, id).putExtra(EXTRA_ANSWER, option);
                 PendingIntent action = PendingIntent.getBroadcast(context, id * 8 + i, choice, flags);
-                builder.addAction(new Notification.Action.Builder(null, option, action).build());
+                Notification.Action.Builder choiceAction = new Notification.Action.Builder(null, option, action);
+                if (Build.VERSION.SDK_INT >= 31) choiceAction.setAuthenticationRequired(true);
+                builder.addAction(choiceAction.build());
             }
             Intent reply = new Intent(context, RootApprovalReceiver.class)
                     .setAction(ACTION_ANSWER).putExtra(EXTRA_ID, id);
@@ -194,8 +196,10 @@ final class RootApproval {
                     | (Build.VERSION.SDK_INT >= 31 ? PendingIntent.FLAG_MUTABLE : 0);
             PendingIntent replyAction = PendingIntent.getBroadcast(context, id * 8 + 7, reply, replyFlags);
             RemoteInput input = new RemoteInput.Builder(EXTRA_REPLY).setLabel("Type your answer").build();
-            builder.addAction(new Notification.Action.Builder(null, "Reply", replyAction)
-                    .addRemoteInput(input).build());
+            Notification.Action.Builder replyButton = new Notification.Action.Builder(null, "Reply", replyAction)
+                    .addRemoteInput(input);
+            if (Build.VERSION.SDK_INT >= 31) replyButton.setAuthenticationRequired(true);
+            builder.addAction(replyButton.build());
             Intent dismissed = new Intent(context, RootApprovalReceiver.class)
                     .setAction(ACTION_ANSWER).putExtra(EXTRA_ID, id).putExtra(EXTRA_ANSWER, "");
             PendingIntent deleteAction = PendingIntent.getBroadcast(context, id * 8 + 6, dismissed, flags);
