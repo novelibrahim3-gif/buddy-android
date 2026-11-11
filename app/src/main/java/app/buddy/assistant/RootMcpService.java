@@ -231,7 +231,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                     throw new IllegalArgumentException("Accessibility-off typing is insertion-only. Set append=true after placing the cursor.");
                 }
                 if (value.length() > 200) throw new IllegalArgumentException("Text is limited to 200 characters per approved action.");
-                if (value.matches("(?s).*\\\\b(password|passcode|one[- ]time code|otp|pin|cvv)\\\\b.*")) {
+                String lower = value.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("password") || lower.contains("passcode") || lower.contains("one-time code")
+                        || lower.contains("otp") || lower.contains("cvv") || lower.matches(".*\\\\bpin\\\\b.*")) {
                     throw new IllegalArgumentException("Sensitive credential-like text is not accepted by root typing.");
                 }
                 String approval = RootApproval.request(this, "Type exactly: " + value);
