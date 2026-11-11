@@ -30,6 +30,7 @@ final class RootApproval {
     private static final ConcurrentHashMap<Integer, Pending> PENDING = new ConcurrentHashMap<>();
     private static final long TIMEOUT_MS = 90_000;
     private static final long QUESTION_TIMEOUT_MS = 5 * 60_000;
+    private static final long MAX_APPROVAL_TIMEOUT_MS = 6 * 60_000;
 
     private static final class Pending {
         final CountDownLatch latch = new CountDownLatch(1);
@@ -60,7 +61,7 @@ final class RootApproval {
 
     /** Optional rule countdown: auto-approve only after the second reviewer has explicitly allowed this action. */
     static String request(Context context, String summary, long timeoutMs, long autoApproveMs) {
-        timeoutMs = Math.max(1000, Math.min(QUESTION_TIMEOUT_MS, timeoutMs));
+        timeoutMs = Math.max(1000, Math.min(MAX_APPROVAL_TIMEOUT_MS, timeoutMs));
         autoApproveMs = Math.max(0, Math.min(timeoutMs, autoApproveMs));
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (!manager.areNotificationsEnabled()) return "UNAVAILABLE";
