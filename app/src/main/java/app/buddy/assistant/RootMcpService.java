@@ -38,6 +38,7 @@ import java.net.URL;
 public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
+    private volatile boolean active;
     private McpServer server;
     private PhoneTools phoneTools;
     private BrowserTools browserTools;
@@ -58,6 +59,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     @Override
     public void onCreate() {
         super.onCreate();
+        active = true;
         createChannel();
         RootApproval.ensureChannel(this);
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
@@ -80,6 +82,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public void onDestroy() {
+        active = false;
         if (marksOverlay != null) {
             try { marksOverlay.clear(); } catch (Exception ignored) { }
             marksOverlay = null;
@@ -107,6 +110,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     void showRuntimeStatus(String status) {
+        if (!active) return;
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null && manager.areNotificationsEnabled()) {
             String safe = status == null ? "Browsing" : status;
