@@ -456,8 +456,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "cancel_scheduled":
                 return text(Schedules.agentTool(this, McpServer.CALLER_CHAT.get(), name, args));
             default:
-                throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
-                        + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
+                throw new IllegalArgumentException("Tool unavailable in the standalone KernelSU runtime: " + name
+                        + ". Use tools/list for the available root-only tools and their limits.");
         }
     }
 
