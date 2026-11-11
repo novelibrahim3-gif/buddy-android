@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.WRITE_SECURE_SETTINGS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Root-only point_out: non-touchable coordinate overlay, only when the user allows it. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Android 16 Live Updates: the "Buddy is using your phone" chip in the status bar -->
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
