@@ -116,8 +116,8 @@ final class RootApproval {
                 }
             } : null;
             if (auto != null) main.postDelayed(auto, autoApproveMs);
-            boolean answered = pending.latch.await(timeoutMs, TimeUnit.MILLISECONDS);
-            if (!answered) return "TIMED OUT";
+            String wait = awaitAnswer(pending, timeoutMs);
+            if (!"ANSWERED".equals(wait)) return wait;
             if (pending.auto) return "AUTO_APPROVED";
             return pending.allow ? "APPROVED" : "DENIED";
         } catch (InterruptedException e) {
@@ -206,14 +206,25 @@ final class RootApproval {
             PendingIntent deleteAction = PendingIntent.getBroadcast(context, id * 8 + 6, dismissed, flags);
             builder.setDeleteIntent(deleteAction);
             manager.notify(id, builder.build());
-            boolean answered = pending.latch.await(timeoutMs, TimeUnit.MILLISECONDS);
-            return answered ? pending.answer : null;
+            return "ANSWERED".equals(awaitAnswer(pending, timeoutMs)) ? pending.answer : null;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return null;
         } finally {
             PENDING.remove(id);
             manager.cancel(id);
+        }
+    }
+
+    /** Stop waiting when the MCP client has disconnected, so a stale approval can never outlive its tool call. */
+    private static String awaitAnswer(Pending pending, long timeoutMs) throws InterruptedException {
+        java.util.function.BooleanSupplier gone = McpServer.CALLER_GONE.get();
+        long end = android.os.SystemClock.elapsedRealtime() + timeoutMs;
+        while (true) {
+            long left = end - android.os.SystemClock.elapsedRealtime();
+            if (left <= 0) return "TIMED OUT";
+            if (pending.latch.await(Math.min(1000, left), TimeUnit.MILLISECONDS)) return "ANSWERED";
+            if (gone != null && gone.getAsBoolean()) return "CANCELLED: the MCP caller disconnected.";
         }
     }
 
