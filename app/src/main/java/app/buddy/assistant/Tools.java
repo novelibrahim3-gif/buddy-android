@@ -1735,7 +1735,14 @@ final class Tools {
                     : "smart".equals(mode) ? review("Press Enter to send", card, target, text) : null;
             if (blocked != null) return result + " Not sent: " + blocked;
             Thread.sleep(150);
-            boolean sent = target.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+            boolean sent = false;
+            try {
+                RootControl.press("ENTER");
+                sent = true;
+            } catch (java.io.IOException rootUnavailable) {
+                android.util.Log.i("BuddyRoot", "Root Enter unavailable; using the focused field action", rootUnavailable);
+                sent = target.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+            }
             result += sent ? " Pressed enter." : " Enter action not supported here; tap the send button instead.";
         }
         return result;
