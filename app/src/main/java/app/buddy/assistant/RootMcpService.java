@@ -17,7 +17,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -178,10 +177,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 .put("type", "image")
                 .put("mimeType", "image/png")
                 .put("data", Base64.encodeToString(png, Base64.NO_WRAP));
+        int width = bitmap.getWidth();
+        int height = bitmap.getHeight();
+        bitmap.recycle();
         return new JSONObject().put("content", new JSONArray()
                 .put(image)
                 .put(new JSONObject().put("type", "text").put("text",
-                        "Real display screenshot: " + bitmap.getWidth() + "x" + bitmap.getHeight()
+                        "Real display screenshot: " + width + "x" + height
                                 + " pixels. This is a visual-only screen read; there are no element ids.")));
     }
 
