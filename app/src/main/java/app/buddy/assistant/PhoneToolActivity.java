@@ -28,11 +28,11 @@ public class PhoneToolActivity extends Activity {
     static synchronized Object run(Context c, String job, String arg, int timeoutSeconds) throws InterruptedException {
         CompletableFuture<Object> f = new CompletableFuture<>();
         pending = f;
-        c.startActivity(new Intent(c, PhoneToolActivity.class).putExtra("job", job).putExtra("arg", arg)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
         try {
+            c.startActivity(new Intent(c, PhoneToolActivity.class).putExtra("job", job).putExtra("arg", arg)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
             return f.get(timeoutSeconds, TimeUnit.SECONDS);
-        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException | RuntimeException e) {
             return null;
         } finally {
             pending = null;
