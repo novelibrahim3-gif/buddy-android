@@ -1693,7 +1693,7 @@ final class Tools {
                         RootControl.typeText(text);
                         typedWithRoot = true;
                     }
-                } catch (java.io.IOException rootUnavailable) {
+                } catch (java.io.IOException | IllegalArgumentException rootUnavailable) {
                     android.util.Log.i("BuddyRoot", "Root text input unavailable; using Accessibility set-text", rootUnavailable);
                 }
             }
@@ -1900,13 +1900,15 @@ final class Tools {
                     int x = Math.round(point[0]), y = Math.round(point[1]);
                     if (durationMs >= 250) RootControl.longPress(svc, x, y, (int) durationMs);
                     else RootControl.tap(svc, x, y);
-                } else if (path.points.size() >= 2) {
+                } else if (path.points.size() == 2) {
                     float[] from = path.points.get(0);
-                    float[] to = path.points.get(path.points.size() - 1);
+                    float[] to = path.points.get(1);
                     RootControl.swipe(svc, Math.round(from[0]), Math.round(from[1]),
                             Math.round(to[0]), Math.round(to[1]), (int) durationMs);
                 } else {
-                    throw new java.io.IOException("Gesture has no points.");
+                    // Preserve curved/multi-segment gestures through Accessibility; a single
+                    // straight KernelSU swipe would silently change the requested path.
+                    throw new java.io.IOException("Gesture needs multiple segments; use the original Accessibility path.");
                 }
                 Thread.sleep(250);
                 return true;
