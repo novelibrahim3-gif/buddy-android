@@ -338,7 +338,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "open_app":
                 return text(openApp(args.getString("app")));
             case "open_url":
-                return text(openUrl(args.getString("url")));
+                return openUrlTool(args.getString("url"));
             case "tap": {
                 int x = args.getInt("x"), y = args.getInt("y");
                 requireUnlocked("tap");
@@ -438,58 +438,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "wait_for":
                 return waitFor(args);
-            case "confirm": {
-                String summary = args.getString("summary").trim();
-                if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
-                if (summary.length() > 500) throw new IllegalArgumentException("Approval summaries are limited to 500 characters.");
-                String approval = RootApproval.request(this, "Approve this action?\n" + summary);
-                if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
-                Guard.approved(summary);
-                return text("APPROVED by the user. Go ahead.");
-            }
-            case "ask": {
-                String question = args.getString("question").trim();
-                JSONArray choices = args.getJSONArray("options");
-                if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
-                if (question.length() > 200) throw new IllegalArgumentException("Questions are limited to 200 characters.");
-                if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
-                java.util.ArrayList<String> options = new java.util.ArrayList<>();
-                for (int i = 0; i < choices.length(); i++) {
-                    String option = choices.optString(i).trim();
-                    if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
-                    if (!options.contains(option)) options.add(option);
-                }
-                if (options.size() < 2) throw new IllegalArgumentException("Give at least two different answer choices.");
-                JSONArray browserHighlight = args.optJSONArray("browser_highlight");
-                if (browserHighlight != null && browserHighlight.length() > 0) {
-                    return text(askInBrowser(question, options, browserHighlight));
-                }
-                JSONArray highlight = args.optJSONArray("highlight");
-                boolean showingMarks = highlight != null && highlight.length() > 0;
-                if (!showingMarks) {
-                    String answer = RootApproval.requestChoice(this, question, options);
-                    return text(answer == null || answer.isEmpty()
-                            ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
-                            : "ANSWER: “" + answer + "”");
-                }
-                java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
-                synchronized (marksLock) {
-                    requireUnlocked("ask");
-                    if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
-                    if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
-                    marksOverlay.show(marks, "box", 5 * 60_000L);
-                    try {
-                        String answer = RootApproval.requestChoice(this, question, options);
-                        return text(answer == null || answer.isEmpty()
-                                ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
-                                : "ANSWER: “" + answer + "”");
-                    } finally {
-                        if (marksOverlay != null) {
-                            try { marksOverlay.clear(); } catch (Exception ignored) { }
-                        }
-                    }
-                }
-            }
+            case "confirm":
+                return confirm(args);
+            case "ask":
+                return ask(args);
             case "point_out":
                 synchronized (marksLock) {
                     return pointOut(args);
@@ -504,10 +456,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text("Updated Buddy's persistent runtime notification.");
             }
             case "wait_for_install":
-                return waitForInstall(args);
             case "install_apk":
-                return installApk(args.getString("path"));
             case "update_buddy":
+                if (Triggers.ruleRun(McpServer.CALLER_CHAT.get())) {
+                    return text("Not available in a notification rule's run. Tell the user what's needed instead.");
+                }
+                if ("wait_for_install".equals(name)) return waitForInstall(args);
+                if ("install_apk".equals(name)) return installApk(args.getString("path"));
                 return updateBuddy(args.optBoolean("install", false));
             case "phone_shell":
                 return phoneShell(args);
@@ -523,6 +478,125 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private JSONObject confirm(JSONObject args) throws Exception {
+        String summary = args.getString("summary").trim();
+        if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
+        if (summary.length() > 500) throw new IllegalArgumentException("Approval summaries are limited to 500 characters.");
+        String chat = McpServer.CALLER_CHAT.get();
+        boolean rule = Triggers.ruleRun(chat);
+        String foreground = RootControl.foregroundPackage();
+        if (!rule && Guard.autonomous(this, foreground)) {
+            return text("APPROVED automatically: the user trusts " + foreground
+                    + ", so work there without calling confirm. Apps on Hard or Smart still ask the user.");
+        }
+        if (!rule && Guard.routineText(summary) && Guard.runRule(this, foreground)) {
+            Guard.approved(summary, true);
+            noteInChat(chat, R.string.run_rule_approved, summary);
+            return text("APPROVED by the user's rule for this run: routine steps are allowed in " + foreground
+                    + " without asking. This approval covers sending only; paying, buying, deleting, installing, "
+                    + "passwords and security settings still need the user's OK.");
+        }
+        int countdown = rule ? Triggers.countdown(chat) : 0;
+        boolean instant = rule && Triggers.instant(chat);
+        String shown = summary;
+        if (countdown > 0 || instant) {
+            showRuntimeStatus(getString(R.string.rules_status_checking));
+            String objection = Triggers.review(this, chat, summary);
+            if (objection != null) {
+                countdown = 0;
+                instant = false;
+                shown = getString(R.string.tools_card_detail, summary, objection);
+            }
+        }
+        if (instant) {
+            noteInChat(chat, R.string.card_note_rule_approved, summary);
+            Guard.approved(summary, true);
+            return text(BuddyService.RULE_APPROVED);
+        }
+        if (rule && countdown == 0 && Triggers.locked(this)) return text(BuddyService.NOT_NOW);
+        long timeout = rule ? (countdown + 60L) * 1000L : Math.max(5 * 60_000L, (countdown + 60L) * 1000L);
+        String approval = RootApproval.request(this, "Approve this action?\n" + shown, timeout,
+                countdown > 0 ? countdown * 1000L : 0);
+        if ("APPROVED".equals(approval) || "AUTO_APPROVED".equals(approval)) {
+            boolean automatic = "AUTO_APPROVED".equals(approval);
+            Guard.approved(summary, automatic);
+            return text(automatic ? BuddyService.AUTO_APPROVED : "APPROVED by the user. Go ahead.");
+        }
+        if (rule) return text(BuddyService.NOT_NOW);
+        return text("NO APPROVAL: " + approval + ". Do not proceed.");
+    }
+
+    private JSONObject ask(JSONObject args) throws Exception {
+        String question = args.getString("question").trim();
+        JSONArray choices = args.getJSONArray("options");
+        if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
+        if (question.length() > 200) throw new IllegalArgumentException("Questions are limited to 200 characters.");
+        if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
+        java.util.ArrayList<String> options = new java.util.ArrayList<>();
+        for (int i = 0; i < choices.length(); i++) {
+            String option = choices.optString(i).trim();
+            if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
+            if (!options.contains(option)) options.add(option);
+        }
+        if (options.size() < 2) throw new IllegalArgumentException("Give at least two different answer choices.");
+        String chat = McpServer.CALLER_CHAT.get();
+        boolean rule = Triggers.ruleRun(chat);
+        if (rule && Triggers.locked(this)) return text(BuddyService.NOT_NOW);
+        long timeout = rule ? 60_000L : 5 * 60_000L;
+        JSONArray browserHighlight = args.optJSONArray("browser_highlight");
+        if (browserHighlight != null && browserHighlight.length() > 0) {
+            if (rule) return text("The background browser is not available in a notification rule's run. Ask the user to do this step on the phone.");
+            return text(askInBrowser(question, options, browserHighlight, timeout));
+        }
+        JSONArray highlight = args.optJSONArray("highlight");
+        boolean showingMarks = highlight != null && highlight.length() > 0;
+        if (!showingMarks) {
+            String answer = RootApproval.requestChoice(this, question, options, timeout);
+            return text(answer == null || answer.isEmpty()
+                    ? "NO ANSWER: notifications are unavailable or the user did not answer within "
+                            + (rule ? "a minute" : "5 minutes") + "."
+                    : "ANSWER: “" + answer + "”");
+        }
+        java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
+        synchronized (marksLock) {
+            requireUnlocked("ask");
+            if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
+            if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
+            marksOverlay.show(marks, "box", timeout);
+            try {
+                String answer = RootApproval.requestChoice(this, question, options, timeout);
+                return text(answer == null || answer.isEmpty()
+                        ? "NO ANSWER: notifications are unavailable or the user did not answer within "
+                                + (rule ? "a minute" : "5 minutes") + "."
+                        : "ANSWER: “" + answer + "”");
+            } finally {
+                if (marksOverlay != null) {
+                    try { marksOverlay.clear(); } catch (Exception ignored) { }
+                }
+            }
+        }
+    }
+
+    private JSONObject openUrlTool(String value) throws Exception {
+        String chat = McpServer.CALLER_CHAT.get();
+        if (Triggers.ruleRun(chat) && !Guard.takeApproval(false, value)) {
+            if (Triggers.locked(this)) return text(BuddyService.NOT_NOW);
+            String answer = RootApproval.request(this, getString(R.string.tools_card_open_url, value), 60_000L);
+            if (!"APPROVED".equals(answer)) {
+                return text("Not opened. " + ("TIMED OUT".equals(answer) ? BuddyService.NOT_NOW : answer));
+            }
+        }
+        return text(openUrl(value));
+    }
+
+    private void noteInChat(String chat, int message, String summary) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            ChatHub hub = ChatHub.get(this);
+            Sessions.Session session = chat == null ? null : hub.sessions.find(chat);
+            if (session != null) hub.note(session, Bubble.Kind.STEP, getString(message, summary.trim()));
+        });
+    }
+
     private static JSONObject browserMarksProperty() throws JSONException {
         JSONObject item = new JSONObject().put("type", "object")
                 .put("properties", new JSONObject()
@@ -533,7 +607,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 .put("description", "Optional items in the current Background Browser tab to highlight for the user.");
     }
 
-    private String askInBrowser(String question, java.util.List<String> options, JSONArray items) throws Exception {
+    private String askInBrowser(String question, java.util.List<String> options, JSONArray items, long timeoutMs) throws Exception {
         String key = Browser.key(McpServer.CALLER_CHAT.get());
         if (!Browser.available(this) || !Browser.running() || !Browser.hasTab(key)) {
             return "The background browser has no page open for this chat: call browser_open first, or use coordinate highlight.";
@@ -557,7 +631,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             Intent open = new Intent(this, BrowserActivity.class).putExtra("key", key)
                     .putExtra("guided", true);
-            String answer = RootApproval.requestChoice(this, question, options, open);
+            String answer = RootApproval.requestChoice(this, question, options, open, timeoutMs);
             return answer == null || answer.isEmpty()
                     ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
                     : "ANSWER: “" + answer + "”";
