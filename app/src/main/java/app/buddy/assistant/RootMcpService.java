@@ -547,8 +547,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
         int seconds = (int) Math.max(1, Math.min(300, args.optInt("timeout_s", 60)));
         if (Prefs.phoneShellAsk(this)) {
+            requireUnlocked();
             String approval = RootApproval.request(this, "Run this command as Android shell user?\n" + command);
             if (!"APPROVED".equals(approval)) return text("Not run: " + approval + ".");
+            requireUnlocked();
         }
         try {
             String[] result = Background.exec(this, command, seconds);
@@ -643,6 +645,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         String approval = RootApproval.request(this, "Download Buddy " + release.version
                 + " from the official GitHub release and open Android's installer?");
         if (!"APPROVED".equals(approval)) return text("Buddy update not started: " + approval + ".");
+        requireUnlocked();
         String result = Updates.install(this, release);
         if (Updates.OPENED.equals(result)) {
             return text("Buddy " + release.version + " was downloaded and Android's installer is open. The user must tap Update.");
