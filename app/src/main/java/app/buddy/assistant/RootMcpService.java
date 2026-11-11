@@ -39,6 +39,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
     private McpServer server;
+    private PhoneTools phoneTools;
     private BrowserTools browserTools;
     private RootMarksOverlay marksOverlay;
     private final Object marksLock = new Object();
@@ -60,6 +61,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         createChannel();
         RootApproval.ensureChannel(this);
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
+        phoneTools = new PhoneTools(this);
         browserTools = new BrowserTools(this);
         server = new McpServer(Prefs.token(this), this);
         server.start();
@@ -129,7 +131,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, find, collect, type_text, confirm, ask, point_out, notify, "
                 + "wait_for (foreground-app match and/or settled-only; text/gone matching is unavailable), wait_for_install, install_apk, update_buddy, schedule_message, "
-                + "list_scheduled, cancel_scheduled, phone_shell and reply_notification (the last two require their user settings/rule context). "
+                + "list_scheduled, cancel_scheduled, phone_shell, reply_notification, clipboard_read/write, set_alarm, set_timer, share, "
+                + "save_to_downloads, device_status, take_photo, notifications, media, calendar_events, add_calendar_event and location. "
+                + "Clipboard and location are approval-gated; camera, calendar and location may request Android permissions. " 
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, approval actions are refused. Screen actions are blocked while locked or off; scheduled runs first ask the user to unlock and wait, then recheck before acting. "
@@ -299,6 +303,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("cancel_scheduled",
                 "Cancel a scheduled message in the current Buddy chat.",
                 new JSONObject().put("id", stringProperty("Scheduled message id")), "id"));
+        PhoneTools.list(tools);
         if (Browser.available(this)) BrowserTools.list(tools);
         return tools;
     }
@@ -311,6 +316,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             if (browserTools == null) browserTools = new BrowserTools(this);
             return browserTools.call(name, args);
+        }
+        if (PhoneTools.NAMES.contains(name)) {
+            if (phoneTools == null) phoneTools = new PhoneTools(this);
+            return phoneTools.call(name, args, Triggers.ruleRun(McpServer.CALLER_CHAT.get()));
         }
         switch (name) {
             case "read_screen":
