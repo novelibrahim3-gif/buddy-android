@@ -101,7 +101,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll and type_text. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
-                + "If notifications are disabled, these actions are refused. read_screen has no UI element ids "
+                + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
+                + "read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find, collect and wait_for remain unavailable. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "Never enter passwords, one-time codes, payment details or secrets.";
