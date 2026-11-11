@@ -20,6 +20,7 @@ import org.json.JSONObject;
 
 import java.util.Collections;
 import java.util.List;
+import java.security.MessageDigest;
 
 /**
  * Accessibility-independent MCP runtime.
@@ -102,13 +103,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
-                + "schedule_message, list_scheduled and cancel_scheduled. "
+                + "wait_for (settled-only), schedule_message, list_scheduled and cancel_scheduled. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
                 + "read_screen has no UI element ids "
-                + "and no OCR text: inspect its image visually. find/collect can be approximated by repeated read_screen "
-                + "and user-approved scroll calls; wait_for can be approximated with wait followed by read_screen. "
+                + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
+                + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "Never enter passwords, one-time codes, payment details or secrets.";
     }
@@ -191,6 +192,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
+        tools.put(tool("wait_for",
+                "Wait until the display stops changing for at least 700 ms. This root-only version supports settled=true only; "
+                        + "text/gone/app matching requires OCR or foreground-app access and is not available.",
+                new JSONObject().put("settled", new JSONObject().put("type", "boolean")
+                                .put("description", "Must be true: wait for the screen to settle"))
+                        .put("timeout_ms", integerProperty("Default 8000, maximum 30000 ms")), "settled"));
         tools.put(tool("confirm",
                 "Ask the user to approve an outward-facing or hard-to-undo action. The exact summary is shown in a one-shot notification.",
                 new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
@@ -318,6 +325,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 Thread.sleep(ms);
                 return text("Waited " + ms + " ms.");
             }
+            case "wait_for":
+                return waitFor(args);
             case "confirm": {
                 String summary = args.getString("summary").trim();
                 if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
@@ -360,6 +369,43 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
         }
+    }
+
+    private JSONObject waitFor(JSONObject args) throws Exception {
+        if (!args.optBoolean("settled", false)) {
+            throw new IllegalArgumentException("Set settled=true. Root mode cannot match text, gone text or foreground app.");
+        }
+        if (args.has("text") || args.has("gone") || args.has("app")) {
+            throw new IllegalArgumentException("Root mode wait_for supports settled=true only; text/gone/app matching needs OCR or foreground-app access.");
+        }
+        requireUnlocked();
+        long timeout = Math.max(500, Math.min(30000, args.optLong("timeout_ms", 8000)));
+        long start = android.os.SystemClock.elapsedRealtime();
+        long stableSince = start;
+        String last = screenFingerprint();
+        while (true) {
+            Thread.sleep(350);
+            requireUnlocked();
+            String current = screenFingerprint();
+            long now = android.os.SystemClock.elapsedRealtime();
+            if (!current.equals(last)) {
+                last = current;
+                stableSince = now;
+            }
+            if (now - stableSince >= 700) {
+                return text(String.format(java.util.Locale.ROOT, "OK after %.1f s; display was visually stable for at least 700 ms.",
+                        (now - start) / 1000.0));
+            }
+            if (now - start >= timeout) {
+                return text(String.format(java.util.Locale.ROOT, "TIMED OUT after %.1f s: the screen kept changing.",
+                        (now - start) / 1000.0));
+            }
+        }
+    }
+
+    private String screenFingerprint() throws Exception {
+        byte[] png = RootControl.screenshot(this);
+        return Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(png), Base64.NO_WRAP);
     }
 
     private void requirePoint(int x, int y) {
