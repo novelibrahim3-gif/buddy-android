@@ -208,7 +208,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("find",
                 "Visual search: return up to four screenshots while scrolling. The agent inspects images for the query; no OCR and no automatic match detection. Each scroll requires approval.",
                 new JSONObject().put("text", stringProperty("Text to look for visually, max 200 characters"))
-                        .put("direction", directionProperty()).put("max_scrolls", integerProperty("1 to 4 screenshot pages, default 4")), "text"));
+                        .put("direction", directionProperty()).put("max_scrolls", integerProperty("0 to 3 approved scrolls; up to 4 screenshots, default 3")), "text"));
         tools.put(tool("collect",
                 "Visual collection: return up to four screenshots while scrolling. The agent reads visible text from the images; no OCR. Each scroll requires approval.",
                 new JSONObject().put("direction", directionProperty())
@@ -710,7 +710,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (!("up".equals(direction) || "down".equals(direction) || "left".equals(direction) || "right".equals(direction))) {
             throw new IllegalArgumentException("Direction must be up, down, left or right.");
         }
-        int maxPages = (int) Math.max(1, Math.min(4, args.optInt("max_scrolls", args.optInt("max_pages", 4))));
+        int maxScrolls = (int) Math.max(0, Math.min(3, args.has("max_scrolls") ? args.optInt("max_scrolls", 3) : args.optInt("max_pages", 4) - 1));
+        int maxPages = maxScrolls + 1;
         JSONArray content = new JSONArray();
         content.put(new JSONObject().put("type", "text").put("text", "find".equals(mode)
                 ? "Visual search for: " + query + ". Screenshots follow in scroll order; inspect them yourself. No OCR is performed."
@@ -729,7 +730,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             content.put(visualImage(png));
             captured++;
             content.put(new JSONObject().put("type", "text").put("text", "Screenshot page " + captured + " in scroll order."));
-            if (page + 1 >= maxPages) break;
+            if (page >= maxScrolls) break;
             JSONObject scrollResult = callTool("scroll", new JSONObject().put("direction", direction));
             JSONArray scrollContent = scrollResult.optJSONArray("content");
             JSONObject first = scrollContent == null ? null : scrollContent.optJSONObject(0);
