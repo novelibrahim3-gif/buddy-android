@@ -46,6 +46,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final java.util.Set<String> COUNTED_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
             "tap", "long_press", "type_text", "scroll", "swipe", "press", "open_app", "open_url",
             "browser_open", "browser_click", "browser_type", "browser_scroll", "browser_back"));
+    private static final java.util.Set<String> STEPPED_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "tap", "long_press", "type_text", "scroll", "swipe", "press", "open_app", "open_url", "do_steps", "collect",
+            "find", "take_photo", "set_alarm", "set_timer", "share", "save_to_downloads", "add_calendar_event", "media",
+            "reply_notification", "schedule_message", "clipboard_write", "phone_shell"));
     private static final java.util.Set<String> REPEATS_OK = new java.util.HashSet<>(java.util.Arrays.asList(
             "scroll", "swipe", "browser_scroll"));
     private static final int MAX_REPEATS = 6;
@@ -367,6 +371,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
         JSONObject result = callToolInternal(name, args);
+        if (STEPPED_TOOLS.contains(name)) {
+            JSONArray content = result.optJSONArray("content");
+            JSONObject first = content == null ? null : content.optJSONObject(0);
+            StepLog.recordRoot(this, McpServer.CALLER_CHAT.get(), name, args,
+                    first == null ? "" : first.optString("text"));
+        }
         if ("confirm".equals(name) || "ask".equals(name)) return result;
         String notes = ChatHub.get(this).takeNotes();
         if (notes != null) {
