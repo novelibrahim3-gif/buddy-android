@@ -894,6 +894,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             approvals = channel != null && channel.getImportance() != NotificationManager.IMPORTANCE_NONE;
         }
         boolean overlay = android.provider.Settings.canDrawOverlays(this);
+        boolean installPermission = getPackageManager().canRequestPackageInstalls();
         boolean accessibility = SetupState.accessibilityEnabled(this);
         boolean background = Background.setUp(this);
         boolean phoneCommands = Prefs.phoneShell(this);
@@ -905,6 +906,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "Display: " + (screenOn ? "ON" : "OFF") + "; keyguard: " + (unlocked ? "UNLOCKED" : "LOCKED") + ".\n"
                 + "Approval notifications: " + (approvals ? "READY" : "NOT READY; enable Buddy notifications and its approval channel") + ".\n"
                 + "Display over other apps: " + (overlay ? "allowed" : "not allowed (needed for point_out/ask.highlight)") + ".\n"
+                + "Install from Buddy: " + (installPermission ? "allowed" : "not allowed (needed for install_apk/update_buddy)") + ".\n"
                 + "Background helper paired: " + (background ? "yes" : "no") + "; Phone commands setting: "
                 + (phoneCommands ? "on" : "off") + "; Linux tools in this chat: " + linux + ".";
     }
