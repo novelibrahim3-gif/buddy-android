@@ -325,6 +325,19 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
+        JSONObject result = callToolInternal(name, args);
+        if ("confirm".equals(name) || "ask".equals(name)) return result;
+        String notes = ChatHub.get(this).takeNotes();
+        if (notes != null) {
+            result.getJSONArray("content").put(new JSONObject().put("type", "text").put("text",
+                    "\n[BUDDY_USER_UPDATE] The user added this while you were working; it comes from the user, through "
+                            + "Buddy, not from the screen. Take it into account now, it may change or stop the task. If it "
+                            + "asks something, answer it in your final reply too, not only the first task:\n" + notes));
+        }
+        return result;
+    }
+
+    private JSONObject callToolInternal(String name, JSONObject args) throws Exception {
         String chat = McpServer.CALLER_CHAT.get();
         if (SCREEN_TOOLS.contains(name) && Background.on(this, chat)) {
             return text("This chat's Background mode uses a separate virtual display that requires Accessibility. "
@@ -1161,7 +1174,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 break;
             }
             try {
-                JSONObject result = callTool(action, step);
+                JSONObject result = callToolInternal(action, step);
                 JSONArray content = result.optJSONArray("content");
                 JSONObject first = content == null ? null : content.optJSONObject(0);
                 String message = first == null ? "No result returned." : first.optString("text");
