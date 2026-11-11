@@ -98,8 +98,8 @@ final class RootControl {
      * no MCP-supplied text is ever passed to the root shell.
      */
     static String foregroundPackage() throws IOException {
-        String output = run("dumpsys activity activities | grep -m 1 -E 'topResumedActivity|mResumedActivity' "
-                + "|| dumpsys window windows | grep -m 1 'mCurrentFocus' || true");
+        String output = run("dumpsys activity activities | grep -m 1 -E 'topResumedActivity=ActivityRecord|mResumedActivity: ActivityRecord' "
+                + "|| dumpsys window windows | grep -m 1 -E 'mCurrentFocus=Window|mFocusedApp=ActivityRecord' || true");
         java.util.regex.Matcher matcher = java.util.regex.Pattern
                 .compile("\\b(?:u\\d+\\s+)?([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+)/")
                 .matcher(output);
