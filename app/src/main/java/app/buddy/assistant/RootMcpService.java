@@ -21,6 +21,13 @@ import org.json.JSONObject;
 import java.util.Collections;
 import java.util.List;
 import java.security.MessageDigest;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 /**
  * Accessibility-independent MCP runtime.
@@ -103,7 +110,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
-                + "wait_for (settled-only), wait_for_install, schedule_message, list_scheduled and cancel_scheduled. "
+                + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
+                + "list_scheduled and cancel_scheduled. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
@@ -216,6 +224,15 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("package", stringProperty("Android package name"))
                         .put("min_version_code", integerProperty("Minimum versionCode; if omitted, wait for a new version"))
                         .put("timeout_s", integerProperty("Default 120, minimum 10, maximum 300")), "package"));
+        tools.put(tool("install_apk",
+                "Open Android's package installer for an APK from Buddy's Linux or a localhost HTTP URL. Linux tools must be enabled for this chat; "
+                        + "the user still confirms installation in Android.",
+                new JSONObject().put("path", stringProperty("Absolute APK path in Buddy's Linux, or http://127.0.0.1:PORT/path")), "path"));
+        tools.put(tool("update_buddy",
+                "Check the official Buddy GitHub release. With install=true, download a newer APK and open Android's installer; "
+                        + "the user must approve and tap Update.",
+                new JSONObject().put("install", new JSONObject().put("type", "boolean")
+                        .put("description", "Download and open the installer only when true"))));
         tools.put(tool("schedule_message",
                 "Schedule a one-time message or reminder in the current Buddy chat. Give in_minutes or at.",
                 new JSONObject().put("message", stringProperty("What to do or remind the user about"))
@@ -369,6 +386,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "wait_for_install":
                 return waitForInstall(args);
+            case "install_apk":
+                return installApk(args.getString("path"));
+            case "update_buddy":
+                return updateBuddy(args.optBoolean("install", false));
             case "schedule_message":
             case "list_scheduled":
             case "cancel_scheduled":
@@ -377,6 +398,100 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
         }
+    }
+
+    private JSONObject installApk(String path) throws Exception {
+        requireUnlocked();
+        String chat = McpServer.CALLER_CHAT.get();
+        if (!ChatHub.get(this).devFor(chat)) {
+            return text(chat != null
+                    ? "Installing apps needs Linux tools enabled in this Buddy chat. Enable them, then retry."
+                    : "Installing apps needs the Settings option 'Linux tools in new chats' enabled, then retry.");
+        }
+        if (path == null || path.trim().isEmpty()) throw new IllegalArgumentException("Give an APK path or localhost URL.");
+        path = path.trim();
+        File output = FilesProvider.apkFile(this);
+        if (path.matches("http://(127\\.0\\.0\\.1|localhost):\\d+/.*")) {
+            HttpURLConnection connection = (HttpURLConnection) new URL(path).openConnection();
+            connection.setConnectTimeout(5000);
+            connection.setReadTimeout(30000);
+            connection.setInstanceFollowRedirects(false);
+            try {
+                int code = connection.getResponseCode();
+                if (code < 200 || code >= 300) return text("Local APK download failed: HTTP " + code + ".");
+                long length = connection.getContentLengthLong();
+                if (length > 512L * 1024 * 1024) return text("APK exceeds the 512 MiB safety limit.");
+                try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(output)) {
+                    byte[] buffer = new byte[32 * 1024];
+                    long total = 0;
+                    int n;
+                    while ((n = in.read(buffer)) != -1) {
+                        total += n;
+                        if (total > 512L * 1024 * 1024) throw new java.io.IOException("APK exceeds the 512 MiB safety limit.");
+                        out.write(buffer, 0, n);
+                    }
+                }
+            } catch (java.io.IOException e) {
+                return text("Couldn't download " + path + ": " + e.getMessage());
+            } finally {
+                connection.disconnect();
+            }
+        } else {
+            if (!path.startsWith("/") || !path.toLowerCase(java.util.Locale.ROOT).endsWith(".apk")) {
+                throw new IllegalArgumentException("Give a full .apk path inside Buddy's Linux or a localhost HTTP URL.");
+            }
+            File root = Linux.root(this).getCanonicalFile();
+            File source = new File(root, path.substring(1)).getCanonicalFile();
+            if (!source.getPath().startsWith(root.getPath() + File.separator) || !source.isFile()) {
+                return text("No APK at " + path + " inside Buddy's Linux.");
+            }
+            if (source.length() > 512L * 1024 * 1024) return text("APK exceeds the 512 MiB safety limit.");
+            try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(output)) {
+                byte[] buffer = new byte[32 * 1024];
+                int n;
+                while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+            }
+        }
+        if (!output.isFile() || output.length() < 4) return text("The APK download/copy was empty.");
+        try (FileInputStream in = new FileInputStream(output)) {
+            if (in.read() != 'P' || in.read() != 'K') return text("The selected file does not look like an APK/ZIP archive.");
+        }
+        if (!getPackageManager().canRequestPackageInstalls()) {
+            startActivity(new Intent(android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:" + getPackageName())).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+            return text("Android's 'Allow from this source' settings are open. Enable installs for Buddy, then call install_apk again.");
+        }
+        String approval = RootApproval.request(this, "Open Android's installer for this APK?\n" + path
+                + "\nYou must review and confirm the installation in Android.");
+        if (!"APPROVED".equals(approval)) return text("Installer not opened: " + approval + ".");
+        requireUnlocked();
+        startActivity(new Intent(Intent.ACTION_VIEW)
+                .setDataAndType(FilesProvider.apkUri(), "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION));
+        return text("Android's installer is open. The user must tap Install/Update and confirm. Call wait_for_install next.");
+    }
+
+    private JSONObject updateBuddy(boolean install) throws Exception {
+        requireUnlocked();
+        if (Flavor.FDROID) {
+            return text("This is the F-Droid build. Update Buddy through the F-Droid app that installed it.");
+        }
+        Updates.Release release = Updates.latest();
+        if (!release.newer()) return text("Buddy is up to date (version " + BuildInfo.VERSION + ").");
+        if (!install) {
+            return text("Buddy " + release.version + " is available. Ask the user whether to download it and open Android's installer.");
+        }
+        String approval = RootApproval.request(this, "Download Buddy " + release.version
+                + " from the official GitHub release and open Android's installer?");
+        if (!"APPROVED".equals(approval)) return text("Buddy update not started: " + approval + ".");
+        String result = Updates.install(this, release);
+        if (Updates.OPENED.equals(result)) {
+            return text("Buddy " + release.version + " was downloaded and Android's installer is open. The user must tap Update.");
+        }
+        if (Updates.NEEDS_PERMISSION.equals(result)) {
+            return text("Android's 'Allow from this source' settings are open. Enable installs for Buddy, then retry update_buddy with install=true.");
+        }
+        return text("Buddy update not installed: " + result + " " + Updates.MANUAL);
     }
 
     private JSONObject waitForInstall(JSONObject args) throws Exception {
