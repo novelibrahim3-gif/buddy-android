@@ -809,14 +809,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private boolean matchesForegroundApp(String wanted, String packageName) {
         if (packageName == null || packageName.isEmpty()) return false;
         if (packageName.equalsIgnoreCase(wanted)) return true;
-        try {
-            android.content.pm.ApplicationInfo info = getPackageManager().getApplicationInfo(packageName, 0);
-            CharSequence label = getPackageManager().getApplicationLabel(info);
-            return label != null && label.toString().toLowerCase(java.util.Locale.ROOT)
-                    .contains(wanted.toLowerCase(java.util.Locale.ROOT));
-        } catch (PackageManager.NameNotFoundException ignored) {
-            return false;
+        String query = wanted.toLowerCase(java.util.Locale.ROOT);
+        Intent launcher = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER);
+        for (ResolveInfo app : getPackageManager().queryIntentActivities(launcher, 0)) {
+            if (app.activityInfo == null || !packageName.equals(app.activityInfo.packageName)) continue;
+            CharSequence label = app.loadLabel(getPackageManager());
+            return label != null && label.toString().toLowerCase(java.util.Locale.ROOT).contains(query);
         }
+        return false;
     }
 
     private JSONObject visualImage(byte[] png) throws Exception {
