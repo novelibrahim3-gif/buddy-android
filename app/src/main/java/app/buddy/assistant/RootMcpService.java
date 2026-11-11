@@ -206,6 +206,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text(openUrl(args.getString("url")));
             case "tap": {
                 int x = args.getInt("x"), y = args.getInt("y");
+                requireUnlocked();
                 String approval = RootApproval.request(this, "Tap screen coordinate (" + x + ", " + y + ")?");
                 if (!"APPROVED".equals(approval)) return text("Tap not performed: " + approval + ".");
                 requireUnlocked();
@@ -215,6 +216,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "long_press": {
                 int x = args.getInt("x"), y = args.getInt("y");
                 int duration = (int) Math.max(250, Math.min(5000, args.optLong("duration_ms", 700)));
+                requireUnlocked();
                 String approval = RootApproval.request(this, "Long-press (" + x + ", " + y + ") for " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Long-press not performed: " + approval + ".");
                 requireUnlocked();
@@ -225,6 +227,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int x1 = args.getInt("x1"), y1 = args.getInt("y1");
                 int x2 = args.getInt("x2"), y2 = args.getInt("y2");
                 int duration = (int) Math.max(50, Math.min(5000, args.optLong("duration_ms", 300)));
+                requireUnlocked();
                 String approval = RootApproval.request(this, "Swipe from (" + x1 + ", " + y1 + ") to ("
                         + x2 + ", " + y2 + ") over " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Swipe not performed: " + approval + ".");
@@ -234,6 +237,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "scroll": {
                 String direction = args.getString("direction");
+                requireUnlocked();
                 android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
                 int cx = dm.widthPixels / 2, cy = dm.heightPixels / 2;
                 int x1 = cx, y1 = cy, x2 = cx, y2 = cy;
@@ -252,6 +256,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "type_text": {
                 String value = args.getString("text");
+                requireUnlocked();
                 if (!args.optBoolean("append", false)) {
                     throw new IllegalArgumentException("Accessibility-off typing is insertion-only. Set append=true after placing the cursor.");
                 }
