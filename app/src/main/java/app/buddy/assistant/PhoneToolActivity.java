@@ -32,7 +32,7 @@ public class PhoneToolActivity extends Activity {
             c.startActivity(new Intent(c, PhoneToolActivity.class).putExtra("job", job).putExtra("arg", arg)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION));
             return f.get(timeoutSeconds, TimeUnit.SECONDS);
-        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException | RuntimeException e) {
+        } catch (java.util.concurrent.ExecutionException | java.util.concurrent.TimeoutException e) {
             return null;
         } finally {
             pending = null;
