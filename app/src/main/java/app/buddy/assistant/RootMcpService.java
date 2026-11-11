@@ -103,7 +103,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
-                + "wait_for (settled-only), schedule_message, list_scheduled and cancel_scheduled. "
+                + "wait_for (settled-only), wait_for_install, schedule_message, list_scheduled and cancel_scheduled. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
@@ -210,6 +210,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("notify",
                 "Update the persistent Buddy root-runtime notification with a short status message.",
                 new JSONObject().put("text", stringProperty("Status text, max 180 characters")), "text"));
+        tools.put(tool("wait_for_install",
+                "Wait until a package is installed or updated to min_version_code. This checks PackageManager only; "
+                        + "it does not inspect the installer screen and returns TIMED OUT if the user has not confirmed.",
+                new JSONObject().put("package", stringProperty("Android package name"))
+                        .put("min_version_code", integerProperty("Minimum versionCode; if omitted, wait for a new version"))
+                        .put("timeout_s", integerProperty("Default 120, minimum 10, maximum 300")), "package"));
         tools.put(tool("schedule_message",
                 "Schedule a one-time message or reminder in the current Buddy chat. Give in_minutes or at.",
                 new JSONObject().put("message", stringProperty("What to do or remind the user about"))
@@ -361,6 +367,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 manager.notify(NOTIFICATION_ID, runtimeNotification(status));
                 return text("Updated Buddy's persistent runtime notification.");
             }
+            case "wait_for_install":
+                return waitForInstall(args);
             case "schedule_message":
             case "list_scheduled":
             case "cancel_scheduled":
@@ -368,6 +376,36 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             default:
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
+        }
+    }
+
+    private JSONObject waitForInstall(JSONObject args) throws Exception {
+        String pkg = args.getString("package").trim();
+        if (pkg.isEmpty()) throw new IllegalArgumentException("Give the Android package name.");
+        long before = installedVersion(pkg);
+        long requested = Math.max(0, args.optLong("min_version_code", 0));
+        long need = requested > 0 ? requested : (before < 0 ? 0 : before + 1);
+        int timeout = (int) Math.max(10, Math.min(300, args.optInt("timeout_s", 120)));
+        long start = android.os.SystemClock.elapsedRealtime();
+        while (true) {
+            long version = installedVersion(pkg);
+            if (version >= 0 && version >= need) {
+                return text("Installed " + pkg + " (versionCode " + version + "). Android PackageManager confirms the package is present.");
+            }
+            long elapsed = android.os.SystemClock.elapsedRealtime() - start;
+            if (elapsed >= timeout * 1000L) {
+                return text("TIMED OUT after " + timeout + " s: " + pkg + " has not reached versionCode " + need
+                        + ". The user may not have confirmed the install.");
+            }
+            Thread.sleep(1000);
+        }
+    }
+
+    private long installedVersion(String packageName) {
+        try {
+            return getPackageManager().getPackageInfo(packageName, 0).getLongVersionCode();
+        } catch (PackageManager.NameNotFoundException e) {
+            return -1;
         }
     }
 
