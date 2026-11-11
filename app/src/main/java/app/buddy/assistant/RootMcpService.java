@@ -1171,13 +1171,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (steps.length() < 1 || steps.length() > 12) {
             throw new IllegalArgumentException("Give between 1 and 12 steps.");
         }
+        java.util.Set<String> allowed = new java.util.HashSet<>(java.util.Arrays.asList(
+                "tap", "long_press", "swipe", "scroll", "type_text", "press", "open_app", "open_url", "wait"));
         StringBuilder out = new StringBuilder();
         int completed = 0;
         for (int i = 0; i < steps.length(); i++) {
             JSONObject step = steps.getJSONObject(i);
             String action = step.optString("action", "");
-            if ("do_steps".equals(action) || "read_screen".equals(action) || "screenshot".equals(action)
-                    || "list_apps".equals(action) || "root_status".equals(action)) {
+            if (!allowed.contains(action)) {
                 out.append(i + 1).append(". stopped: unsupported action in a step (").append(action).append(").");
                 break;
             }
@@ -1188,9 +1189,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String message = first == null ? "No result returned." : first.optString("text");
                 out.append(i + 1).append(". ").append(action).append(": ").append(message).append('\n');
                 String lower = message.toLowerCase(java.util.Locale.ROOT);
-                if (lower.contains("not performed") || lower.contains("not entered")
-                        || lower.contains("timed out") || lower.contains("denied")
-                        || lower.contains("unavailable")) break;
+                if (lower.startsWith("failed") || lower.contains("blocked") || lower.contains("denied")
+                        || lower.contains("not done") || lower.contains("could not") || lower.contains("couldn't")
+                        || lower.contains("cancelled") || lower.contains("changes requested")
+                        || lower.contains("not tapped") || lower.contains("not performed")
+                        || lower.contains("not entered") || lower.contains("not opened")
+                        || lower.contains("timed out") || lower.contains("unavailable")
+                        || lower.contains("no approval")) break;
                 completed++;
             } catch (Exception e) {
                 out.append(i + 1).append(". ").append(action).append(": FAILED: ")
