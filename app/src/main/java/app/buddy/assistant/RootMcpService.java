@@ -121,7 +121,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out is unavailable without the overlay/element map; reply_notification works only in an active notification-rule chat "
                 + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
-                + "the user enables Phone commands and Linux tools. It never escalates to root. Never enter passwords, one-time codes, "
+                + "the user enables Phone commands and Linux tools; it is not a sandbox. Never enter passwords, one-time codes, "
                 + "payment details or secrets.";
     }
 
@@ -238,8 +238,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                         .put("description", "Download and open the installer only when true"))));
         tools.put(tool("phone_shell",
                 "Run a command as Android shell user through Buddy Wireless debugging helper, not as root. "
-                        + "Requires Settings → Background mode → Phone commands and Linux tools. Screen-control commands, "
-                        + "root escalation and commands targeting Buddy/accessibility settings are blocked; user approval follows the Phone commands setting.",
+                        + "Requires Settings → Background mode → Phone commands and Linux tools. Common direct screen-control/root commands "
+                        + "and commands targeting Buddy/accessibility settings are blocked. This is an opt-in shell feature, not a sandbox; "
+                        + "user approval follows the Phone commands setting.",
                 new JSONObject().put("command", stringProperty("Android shell command, max 4000 characters"))
                         .put("timeout_s", integerProperty("Default 60, maximum 300")), "command"));
         tools.put(tool("reply_notification",
@@ -366,7 +367,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String summary = args.getString("summary").trim();
                 if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
                 requireUnlocked();
-                String approval = RootApproval.request(this, "Approve this action?\\n" + summary);
+                String approval = RootApproval.request(this, "Approve this action?\n" + summary);
                 if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
                 requireUnlocked();
                 if ("APPROVED".equals(approval)) return text("APPROVED by the user. Go ahead.");
@@ -434,7 +435,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             return text("Not sent: a newer message arrived in " + note.app + ". A new rule run should handle the latest messages.");
         }
         requireUnlocked();
-        String approval = RootApproval.request(this, "Send this exact reply to " + note.who() + " in " + note.app + "?\\n" + reply);
+        String approval = RootApproval.request(this, "Send this exact reply to " + note.who() + " in " + note.app + "?\n" + reply);
         if (!"APPROVED".equals(approval)) return text("Not sent: " + approval + ".");
         requireUnlocked();
         if (Triggers.userAnswered(chat)) return text("Not sent: the user replied while approval was pending.");
@@ -461,21 +462,21 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (command.isEmpty()) throw new IllegalArgumentException("Give the command.");
         if (command.length() > 4000) throw new IllegalArgumentException("Command is limited to 4000 characters.");
         java.util.regex.Pattern blocked = java.util.regex.Pattern.compile(
-                "(?:^|[\\s;&|(`])(?:/system/bin/)?(?:input|sendevent|monkey|uiautomator|su|ksud|magisk|sudo)(?:\\s|$)"
+                "(?i)(?:^|[^A-Za-z0-9_])(?:input|sendevent|monkey|uiautomator|su|ksud|magisk|sudo)(?:$|[^A-Za-z0-9_])"
                         + "|cmd\\s+input|app\\.buddy\\.assistant|enabled_accessibility_services|accessibility_enabled");
         if (blocked.matcher(command).find()) {
             return text("BLOCKED: phone_shell cannot control the screen, escalate to root, or change Buddy/accessibility settings. Use the approved phone tools for screen actions.");
         }
         int seconds = (int) Math.max(1, Math.min(300, args.optInt("timeout_s", 60)));
         if (Prefs.phoneShellAsk(this)) {
-            String approval = RootApproval.request(this, "Run this command as Android shell user?\\n" + command);
+            String approval = RootApproval.request(this, "Run this command as Android shell user?\n" + command);
             if (!"APPROVED".equals(approval)) return text("Not run: " + approval + ".");
         }
         try {
             String[] result = Background.exec(this, command, seconds);
             String output = result[1].length() > 20000 ? "…" + result[1].substring(result[1].length() - 20000) : result[1];
             return text(("-1".equals(result[0]) ? "Stopped after " + seconds + " s without finishing." : "Exit code " + result[0] + ".")
-                    + (output.trim().isEmpty() ? " No output." : "\\n" + output));
+                    + (output.trim().isEmpty() ? " No output." : "\n" + output));
         } catch (Background.Unavailable e) {
             return text("The command failed: " + e.getMessage() + ".");
         }
