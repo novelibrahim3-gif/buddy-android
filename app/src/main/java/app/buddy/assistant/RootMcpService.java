@@ -49,14 +49,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         super.onCreate();
         createChannel();
         RootApproval.ensureChannel(this);
-        Notification notification = new Notification.Builder(this, CHANNEL)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle(getString(R.string.app_name))
-                .setContentText("Root MCP aktif · Accessibility tidak digunakan")
-                .setOngoing(true)
-                .setCategory(Notification.CATEGORY_SERVICE)
-                .build();
-        startForeground(NOTIFICATION_ID, notification);
+        startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
         server = new McpServer(Prefs.token(this), this);
         server.start();
     }
@@ -92,6 +85,16 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             channel.setDescription("Local MCP server for Accessibility-independent screen inspection.");
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
+    }
+
+    private Notification runtimeNotification(String status) {
+        return new Notification.Builder(this, CHANNEL)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(getString(R.string.app_name))
+                .setContentText(status)
+                .setOngoing(true)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .build();
     }
 
     @Override
@@ -188,6 +191,30 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
+        tools.put(tool("confirm",
+                "Ask the user to approve an outward-facing or hard-to-undo action. The exact summary is shown in a one-shot notification.",
+                new JSONObject().put("summary", stringProperty("Exactly what the user is approving")), "summary"));
+        tools.put(tool("ask",
+                "Ask the user a question through a notification with 2 to 4 answer buttons and an optional typed reply. "
+                        + "This root-only version does not support screen highlights.",
+                new JSONObject().put("question", stringProperty("Short, clear question"))
+                        .put("options", new JSONObject().put("type", "array").put("minItems", 2).put("maxItems", 4)
+                                .put("items", stringProperty("One short answer choice"))), "question", "options"));
+        tools.put(tool("notify",
+                "Update the persistent Buddy root-runtime notification with a short status message.",
+                new JSONObject().put("text", stringProperty("Status text, max 180 characters")), "text"));
+        tools.put(tool("schedule_message",
+                "Schedule a one-time message or reminder in the current Buddy chat. Give in_minutes or at.",
+                new JSONObject().put("message", stringProperty("What to do or remind the user about"))
+                        .put("in_minutes", integerProperty("Minutes from now"))
+                        .put("at", stringProperty("Phone local time, e.g. 2026-11-12 09:00 or 09:00"))
+                        .put("remind", new JSONObject().put("type", "boolean"))
+                        .put("quiet", new JSONObject().put("type", "boolean")), "message"));
+        tools.put(tool("list_scheduled",
+                "List one-time messages scheduled in the current Buddy chat.", new JSONObject()));
+        tools.put(tool("cancel_scheduled",
+                "Cancel a scheduled message in the current Buddy chat.",
+                new JSONObject().put("id", stringProperty("Scheduled message id")), "id"));
         return tools;
     }
 
@@ -291,6 +318,44 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 Thread.sleep(ms);
                 return text("Waited " + ms + " ms.");
             }
+            case "confirm": {
+                String summary = args.getString("summary").trim();
+                if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
+                String approval = RootApproval.request(this, "Approve this action?\\n" + summary);
+                if ("APPROVED".equals(approval)) return text("APPROVED by the user. Go ahead.");
+                if ("DENIED".equals(approval)) return text("DENIED by the user. Do not do it.");
+                return text("NO ANSWER: approval " + approval.toLowerCase(java.util.Locale.ROOT) + ". Do not proceed.");
+            }
+            case "ask": {
+                String question = args.getString("question").trim();
+                JSONArray choices = args.getJSONArray("options");
+                if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
+                if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
+                if (args.has("highlight")) throw new IllegalArgumentException("Screen highlights are not available with Accessibility off.");
+                java.util.ArrayList<String> options = new java.util.ArrayList<>();
+                for (int i = 0; i < choices.length(); i++) {
+                    String option = choices.optString(i).trim();
+                    if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
+                    options.add(option);
+                }
+                String answer = RootApproval.requestChoice(this, question, options);
+                return text(answer == null || answer.isEmpty()
+                        ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
+                        : "ANSWER: “" + answer + "”");
+            }
+            case "notify": {
+                String status = args.getString("text").trim();
+                if (status.isEmpty()) throw new IllegalArgumentException("Give a status message.");
+                if (status.length() > 180) status = status.substring(0, 180);
+                NotificationManager manager = getSystemService(NotificationManager.class);
+                if (!manager.areNotificationsEnabled()) return text("Not shown: notifications are disabled.");
+                manager.notify(NOTIFICATION_ID, runtimeNotification(status));
+                return text("Updated Buddy's persistent runtime notification.");
+            }
+            case "schedule_message":
+            case "list_scheduled":
+            case "cancel_scheduled":
+                return text(Schedules.agentTool(this, McpServer.CALLER_CHAT.get(), name, args));
             default:
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
