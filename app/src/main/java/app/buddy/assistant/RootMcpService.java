@@ -1209,8 +1209,16 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (grok != null && grok.length() > 0) {
             Prefs.setGrokModels(this, grok.toString());
             Models.set("grok", grok.toString());
+            return;
         }
-        // Chat transcript/monitor events need the app's chat UI and are intentionally not consumed here.
+        String type = event.optString("type");
+        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
+        if ("buddy_procs".equals(type) || "buddy_recent".equals(type) || "buddy_transcript".equals(type)) {
+            main.post(() -> ChatHub.get(this).onMonitorEvent(event));
+            return;
+        }
+        // Keep chat sessions and scheduled/notification-rule completion state current without Accessibility.
+        main.post(() -> ChatHub.get(this).onEvent(event));
     }
 
     @Override
