@@ -102,7 +102,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find, collect, wait_for and do_steps remain "
-                + "unavailable. Never enter passwords, one-time codes, payment details or secrets.";
+                + "unavailable. do_steps is available for up to 12 actions; each action still gets its own approval. "
+                + "Never enter passwords, one-time codes, payment details or secrets.";
     }
 
     @Override
@@ -160,6 +161,26 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 new JSONObject().put("button", new JSONObject().put("type", "string")
                         .put("enum", new JSONArray().put("back").put("home").put("recents")
                                 .put("notifications").put("quick_settings"))), "button"));
+        tools.put(tool("do_steps",
+                "Run up to 12 sequential actions. Every tap, long_press, swipe, scroll and type_text still requires "
+                        + "its own one-time approval. The batch stops at the first denied or failed action.",
+                new JSONObject().put("steps", new JSONObject().put("type", "array").put("minItems", 1).put("maxItems", 12)
+                        .put("items", new JSONObject().put("type", "object").put("properties", new JSONObject()
+                                .put("action", new JSONObject().put("type", "string").put("enum", new JSONArray()
+                                        .put("tap").put("long_press").put("swipe").put("scroll").put("type_text")
+                                        .put("press").put("open_app").put("open_url").put("wait")))
+                                .put("x", integerProperty("Tap/long_press X"))
+                                .put("y", integerProperty("Tap/long_press Y"))
+                                .put("x1", integerProperty("Swipe start X")).put("y1", integerProperty("Swipe start Y"))
+                                .put("x2", integerProperty("Swipe end X")).put("y2", integerProperty("Swipe end Y"))
+                                .put("duration_ms", integerProperty("Long-press/swipe duration"))
+                                .put("direction", stringProperty("Scroll direction: up, down, left or right"))
+                                .put("text", stringProperty("Text for type_text (non-sensitive, max 200 chars)"))
+                                .put("append", new JSONObject().put("type", "boolean").put("description", "Must be true for type_text"))
+                                .put("button", stringProperty("System button"))
+                                .put("app", stringProperty("App name or package"))
+                                .put("url", stringProperty("URL or supported deep link"))
+                                .put("ms", integerProperty("Wait duration"))).put("required", new JSONArray().put("action")))), "steps"));
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
@@ -244,6 +265,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "press":
                 RootControl.pressSystemButton(args.getString("button"));
                 return text("Pressed " + args.getString("button") + " using KernelSU.");
+            case "do_steps":
+                return doSteps(args.getJSONArray("steps"));
             case "wait": {
                 long ms = Math.max(0, Math.min(10000, args.optLong("ms", 1000)));
                 Thread.sleep(ms);
@@ -253,6 +276,41 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
         }
+    }
+
+    private JSONObject doSteps(JSONArray steps) throws Exception {
+        if (steps.length() < 1 || steps.length() > 12) {
+            throw new IllegalArgumentException("Give between 1 and 12 steps.");
+        }
+        StringBuilder out = new StringBuilder();
+        int completed = 0;
+        for (int i = 0; i < steps.length(); i++) {
+            JSONObject step = steps.getJSONObject(i);
+            String action = step.optString("action", "");
+            if ("do_steps".equals(action) || "read_screen".equals(action) || "screenshot".equals(action)
+                    || "list_apps".equals(action) || "root_status".equals(action)) {
+                out.append(i + 1).append(". stopped: unsupported action in a step (").append(action).append(").");
+                break;
+            }
+            try {
+                JSONObject result = callTool(action, step);
+                JSONArray content = result.optJSONArray("content");
+                JSONObject first = content == null ? null : content.optJSONObject(0);
+                String message = first == null ? "No result returned." : first.optString("text");
+                out.append(i + 1).append(". ").append(action).append(": ").append(message).append('\n');
+                String lower = message.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("not performed") || lower.contains("not entered")
+                        || lower.contains("timed out") || lower.contains("denied")
+                        || lower.contains("unavailable")) break;
+                completed++;
+            } catch (Exception e) {
+                out.append(i + 1).append(". ").append(action).append(": FAILED: ")
+                        .append(e.getMessage()).append('\n');
+                break;
+            }
+        }
+        out.append("Done ").append(completed).append(" of ").append(steps.length()).append(" steps.");
+        return text(out.toString());
     }
 
     private JSONObject screenImage() throws Exception {
