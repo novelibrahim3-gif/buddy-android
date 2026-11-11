@@ -208,6 +208,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "tap": {
                 int x = args.getInt("x"), y = args.getInt("y");
                 requireUnlocked();
+                requirePoint(x, y);
                 String approval = RootApproval.request(this, "Tap screen coordinate (" + x + ", " + y + ")?");
                 if (!"APPROVED".equals(approval)) return text("Tap not performed: " + approval + ".");
                 requireUnlocked();
@@ -218,6 +219,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int x = args.getInt("x"), y = args.getInt("y");
                 int duration = (int) Math.max(250, Math.min(5000, args.optLong("duration_ms", 700)));
                 requireUnlocked();
+                requirePoint(x, y);
                 String approval = RootApproval.request(this, "Long-press (" + x + ", " + y + ") for " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Long-press not performed: " + approval + ".");
                 requireUnlocked();
@@ -229,6 +231,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int x2 = args.getInt("x2"), y2 = args.getInt("y2");
                 int duration = (int) Math.max(50, Math.min(5000, args.optLong("duration_ms", 300)));
                 requireUnlocked();
+                requirePoint(x1, y1);
+                requirePoint(x2, y2);
                 String approval = RootApproval.request(this, "Swipe from (" + x1 + ", " + y1 + ") to ("
                         + x2 + ", " + y2 + ") over " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Swipe not performed: " + approval + ".");
@@ -288,6 +292,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             default:
                 throw new IllegalArgumentException("Tool unavailable while Accessibility is off: " + name
                         + ". This runtime currently supports screen images, app launch, URL launch and fixed navigation.");
+        }
+    }
+
+    private void requirePoint(int x, int y) {
+        android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
+        if (x < 0 || y < 0 || x >= dm.widthPixels || y >= dm.heightPixels) {
+            throw new IllegalArgumentException("Coordinates are outside the current display bounds ("
+                    + dm.widthPixels + "x" + dm.heightPixels + ").");
         }
     }
 
