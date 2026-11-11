@@ -102,7 +102,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find, collect and wait_for remain unavailable. "
-                + "do_steps is available for up to 12 actions; each action still gets its own approval. "
+                + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "Never enter passwords, one-time codes, payment details or secrets.";
     }
 
