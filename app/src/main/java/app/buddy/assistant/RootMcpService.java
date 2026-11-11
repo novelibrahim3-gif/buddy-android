@@ -292,8 +292,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private void requireUnlocked() {
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
-        if (keyguard != null && keyguard.isKeyguardLocked()) {
-            throw new IllegalStateException("The phone is locked. Unlock it before using root screen tools.");
+        if (!BuddyService.screenOn(this) || (keyguard != null && keyguard.isKeyguardLocked())) {
+            throw new IllegalStateException("The screen is off or the phone is locked. Turn the screen on and unlock it before using root screen tools.");
         }
     }
 
