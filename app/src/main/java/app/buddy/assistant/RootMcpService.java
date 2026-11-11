@@ -32,7 +32,7 @@ import java.net.URL;
  * Accessibility-independent MCP runtime.
  *
  * This runtime uses KernelSU for visual screen control and Android APIs for app/system
- * operations. It deliberately exposes no AccessibilityNodeInfo tree, OCR or element IDs;
+ * operations. It deliberately exposes no accessibility tree, OCR or element IDs;
  * visual search/collection is performed by the connected model from returned screenshots.
  */
 public final class RootMcpService extends Service implements McpServer.Handler {
