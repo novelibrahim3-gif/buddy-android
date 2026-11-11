@@ -81,6 +81,8 @@ final class RootApproval {
             int flags = PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE;
             PendingIntent yes = PendingIntent.getBroadcast(context, id * 2, approve, flags);
             PendingIntent no = PendingIntent.getBroadcast(context, id * 2 + 1, deny, flags);
+            Notification.Action.Builder approveAction = new Notification.Action.Builder(null, "Approve once", yes);
+            if (Build.VERSION.SDK_INT >= 31) approveAction.setAuthenticationRequired(true);
             Notification notification = new Notification.Builder(context, CHANNEL)
                     .setSmallIcon(R.mipmap.ic_launcher)
                     .setContentTitle("Approve Buddy action?")
@@ -97,8 +99,8 @@ final class RootApproval {
                             .setContentText("Unlock your phone to review this action.")
                             .build())
                     .setAutoCancel(true)
-                    .setTimeoutAfter(TIMEOUT_MS)
-                    .addAction(new Notification.Action.Builder(null, "Approve once", yes).build())
+                    .setTimeoutAfter(timeoutMs)
+                    .addAction(approveAction.build())
                     .addAction(new Notification.Action.Builder(null, "Deny", no).build())
                     .build();
             manager.notify(id, notification);
