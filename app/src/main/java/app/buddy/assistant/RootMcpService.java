@@ -61,6 +61,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
         server = new McpServer(Prefs.token(this), this);
         server.start();
+        // Restore scheduled chat/reminder alarms even when the Accessibility service is disabled.
+        Schedules.serviceStarted(this);
     }
 
     @Override
