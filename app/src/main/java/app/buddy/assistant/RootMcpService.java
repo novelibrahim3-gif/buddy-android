@@ -102,7 +102,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "available, but every coordinate action requires a one-time Approve/Deny notification. "
                 + "If notifications are disabled, those actions are refused. Interpret read_screen visually; "
                 + "it does not return UI element ids or OCR text. type_text, find, collect, wait_for and do_steps "
-                + "remain unavailable. Never enter passwords, one-time codes or payment details.";
+                + "type_text is insertion-only at the current cursor and requires append=true plus a separate "
+                + "approval notification showing the exact text. Never enter passwords, one-time codes or payment details.";
     }
 
     @Override
@@ -147,6 +148,14 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 "Scroll in a direction from the center of the display. Buddy requires a one-time notification approval.",
                 new JSONObject().put("direction", new JSONObject().put("type", "string")
                         .put("enum", new JSONArray().put("up").put("down").put("left").put("right"))), "direction"));
+        tools.put(tool("type_text",
+                "Type non-sensitive text at the currently focused cursor. In this Accessibility-off runtime it is "
+                        + "insertion-only: append must be true. Buddy shows the exact text in a notification and waits "
+                        + "for one-time user approval. Never use for passwords, one-time codes, payment details or secrets.",
+                new JSONObject().put("text", stringProperty("Non-sensitive text, max 200 characters"))
+                        .put("append", new JSONObject().put("type", "boolean")
+                                .put("description", "Must be true: insert at the current cursor; replacement is not supported.")),
+                "text", "append"));
         tools.put(tool("press",
                 "Use a fixed Android system navigation action: back, home, recents, notifications or quick_settings.",
                 new JSONObject().put("button", new JSONObject().put("type", "string")
@@ -215,6 +224,20 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 if (!"APPROVED".equals(approval)) return text("Scroll not performed: " + approval + ".");
                 RootControl.swipe(this, x1, y1, x2, y2, 350);
                 return text("Scrolled " + direction + " using KernelSU.");
+            }
+            case "type_text": {
+                String value = args.getString("text");
+                if (!args.optBoolean("append", false)) {
+                    throw new IllegalArgumentException("Accessibility-off typing is insertion-only. Set append=true after placing the cursor.");
+                }
+                if (value.length() > 200) throw new IllegalArgumentException("Text is limited to 200 characters per approved action.");
+                if (value.matches("(?s).*\\\\b(password|passcode|one[- ]time code|otp|pin|cvv)\\\\b.*")) {
+                    throw new IllegalArgumentException("Sensitive credential-like text is not accepted by root typing.");
+                }
+                String approval = RootApproval.request(this, "Type exactly: " + value);
+                if (!"APPROVED".equals(approval)) return text("Text not entered: " + approval + ".");
+                RootControl.typeText(value);
+                return text("Inserted " + value.length() + " characters using KernelSU.");
             }
             case "press":
                 RootControl.pressSystemButton(args.getString("button"));
