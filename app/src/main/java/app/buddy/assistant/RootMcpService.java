@@ -4,7 +4,6 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
-import android.app.KeyguardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -32,9 +31,9 @@ import java.net.URL;
 /**
  * Accessibility-independent MCP runtime.
  *
- * This deliberately exposes only capabilities that can be implemented without an
- * AccessibilityNodeInfo tree. Screen interaction that needs element/risk inspection
- * remains unavailable here until an equivalent guarded confirmation flow exists.
+ * This runtime uses KernelSU for visual screen control and Android APIs for app/system
+ * operations. It deliberately exposes no AccessibilityNodeInfo tree, OCR or element IDs;
+ * visual search/collection is performed by the connected model from returned screenshots.
  */
 public final class RootMcpService extends Service implements McpServer.Handler {
     private static final String CHANNEL = "buddy_root_runtime";
