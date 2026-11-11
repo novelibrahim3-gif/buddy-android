@@ -74,6 +74,12 @@ final class RootApproval {
                     .setStyle(new Notification.BigTextStyle().bigText(summary
                             + "\nThis approval applies to one action only."))
                     .setCategory(Notification.CATEGORY_STATUS)
+                    .setVisibility(Notification.VISIBILITY_PRIVATE)
+                    .setPublicVersion(new Notification.Builder(context, CHANNEL)
+                            .setSmallIcon(R.mipmap.ic_launcher)
+                            .setContentTitle("Buddy needs your approval")
+                            .setContentText("Unlock your phone to review this action.")
+                            .build())
                     .setAutoCancel(true)
                     .setTimeoutAfter(TIMEOUT_MS)
                     .addAction(new Notification.Action.Builder(null, "Approve once", yes).build())
@@ -115,6 +121,12 @@ final class RootApproval {
                     .setStyle(new Notification.BigTextStyle().bigText(question
                             + "\nChoose an answer or use Reply to type your own."))
                     .setCategory(Notification.CATEGORY_MESSAGE)
+                    .setVisibility(Notification.VISIBILITY_PRIVATE)
+                    .setPublicVersion(new Notification.Builder(context, CHANNEL)
+                            .setSmallIcon(R.mipmap.ic_launcher)
+                            .setContentTitle("Buddy has a question")
+                            .setContentText("Unlock your phone to answer.")
+                            .build())
                     .setAutoCancel(true)
                     .setTimeoutAfter(QUESTION_TIMEOUT_MS);
             for (int i = 0; i < options.size(); i++) {
