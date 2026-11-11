@@ -36,7 +36,7 @@ final class RootApproval {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         NotificationChannel channel = new NotificationChannel(CHANNEL,
                 "Buddy screen action approvals", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("Approve or deny each root screen tap or swipe.");
+        channel.setDescription("Approve or deny one Buddy action at a time.");
         manager.createNotificationChannel(channel);
     }
 
@@ -65,7 +65,7 @@ final class RootApproval {
                     .setContentTitle("Approve Buddy screen action?")
                     .setContentText(summary)
                     .setStyle(new Notification.BigTextStyle().bigText(summary
-                            + "\nReview the latest screen image in the connected agent chat. This approval applies to one action only."))
+                            + "\nThis approval applies to one action only."))
                     .setCategory(Notification.CATEGORY_STATUS)
                     .setAutoCancel(true)
                     .setTimeoutAfter(TIMEOUT_MS)
