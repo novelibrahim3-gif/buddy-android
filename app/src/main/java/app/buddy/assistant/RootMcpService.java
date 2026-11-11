@@ -1235,7 +1235,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                         || lower.contains("not tapped") || lower.contains("not performed")
                         || lower.contains("not entered") || lower.contains("not opened")
                         || lower.contains("timed out") || lower.contains("unavailable")
-                        || lower.contains("no approval")) break;
+                        || lower.contains("no approval") || lower.contains("stopped")) break;
                 completed++;
             } catch (Exception e) {
                 out.append(i + 1).append(". ").append(action).append(": FAILED: ")
