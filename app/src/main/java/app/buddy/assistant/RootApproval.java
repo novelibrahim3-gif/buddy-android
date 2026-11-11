@@ -223,7 +223,10 @@ final class RootApproval {
         while (true) {
             long left = end - android.os.SystemClock.elapsedRealtime();
             if (left <= 0) return "TIMED OUT";
-            if (pending.latch.await(Math.min(1000, left), TimeUnit.MILLISECONDS)) return "ANSWERED";
+            if (pending.latch.await(Math.min(1000, left), TimeUnit.MILLISECONDS)) {
+                return gone != null && gone.getAsBoolean()
+                        ? "CANCELLED: the MCP caller disconnected." : "ANSWERED";
+            }
             if (gone != null && gone.getAsBoolean()) return "CANCELLED: the MCP caller disconnected.";
         }
     }
