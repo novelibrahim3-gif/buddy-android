@@ -93,6 +93,19 @@ final class RootControl {
         run("input text " + quote(value.replace(" ", "%s")));
     }
 
+    /**
+     * Read the foreground package from Android system diagnostics. The command is fixed;
+     * no MCP-supplied text is ever passed to the root shell.
+     */
+    static String foregroundPackage() throws IOException {
+        String output = run("dumpsys activity activities | grep -m 1 -E 'topResumedActivity|mResumedActivity' "
+                + "|| dumpsys window windows | grep -m 1 'mCurrentFocus' || true");
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\b(?:u\\d+\\s+)?([A-Za-z0-9_]+(?:\\.[A-Za-z0-9_]+)+)/")
+                .matcher(output);
+        return matcher.find() ? matcher.group(1) : "";
+    }
+
     static byte[] screenshot(Context context) throws IOException {
         File target = File.createTempFile("buddy-root-screen-", ".png", context.getCacheDir());
         try {
