@@ -829,7 +829,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             requireUnlocked();
             byte[] png = RootControl.screenshot(this);
             String current = fingerprint(png);
-            if (current.equals(previous)) {
+            if (previous != null && visuallySame(current, previous)) {
                 content.put(new JSONObject().put("type", "text").put("text", "Stopped: the display did not change after the last approved scroll; likely the end of this content."));
                 break;
             }
@@ -889,7 +889,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             boolean screenStable = true;
             if (settled) {
                 String current = screenFingerprint();
-                if (!current.equals(last)) {
+                if (!visuallySame(current, last)) {
                     last = current;
                     stableSince = now;
                 }
@@ -944,8 +944,42 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return fingerprint(RootControl.screenshot(this));
     }
 
+    /** A low-resolution difference hash ignores tiny status-bar/cursor changes but notices real screen movement. */
     private String fingerprint(byte[] png) throws Exception {
-        return Base64.encodeToString(MessageDigest.getInstance("SHA-256").digest(png), Base64.NO_WRAP);
+        android.graphics.BitmapFactory.Options options = new android.graphics.BitmapFactory.Options();
+        options.inSampleSize = 4;
+        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length, options);
+        if (bitmap == null) throw new java.io.IOException("Could not decode a screen fingerprint.");
+        try {
+            int width = bitmap.getWidth(), height = bitmap.getHeight();
+            int top = Math.min(height - 1, Math.max(0, height / 16)); // ignore the clock/status bar
+            long hash = 0L;
+            int bit = 0;
+            for (int y = 0; y < 8; y++) {
+                int py = top + Math.min(height - 1 - top, (int) ((y + 0.5) * (height - top) / 8.0));
+                for (int x = 0; x < 8; x++) {
+                    int x1 = Math.min(width - 1, (int) ((x + 0.5) * width / 9.0));
+                    int x2 = Math.min(width - 1, (int) ((x + 1.5) * width / 9.0));
+                    int a = bitmap.getPixel(x1, py), b = bitmap.getPixel(x2, py);
+                    int la = (((a >> 16) & 255) * 299 + ((a >> 8) & 255) * 587 + (a & 255) * 114) / 1000;
+                    int lb = (((b >> 16) & 255) * 299 + ((b >> 8) & 255) * 587 + (b & 255) * 114) / 1000;
+                    if (la > lb) hash |= 1L << bit;
+                    bit++;
+                }
+            }
+            return Long.toUnsignedString(hash, 16);
+        } finally {
+            bitmap.recycle();
+        }
+    }
+
+    private boolean visuallySame(String a, String b) {
+        try {
+            long x = Long.parseUnsignedLong(a, 16), y = Long.parseUnsignedLong(b, 16);
+            return Long.bitCount(x ^ y) <= 3;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private void requirePoint(int x, int y) {
