@@ -97,13 +97,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     @Override
     public String instructions() {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
-                + "Available tools are read_screen/screenshot (an image of the real display), root_status, "
-                + "list_apps, open_app, open_url, press and wait. tap, long_press, swipe and scroll are also "
-                + "available, but every coordinate action requires a one-time Approve/Deny notification. "
-                + "If notifications are disabled, those actions are refused. Interpret read_screen visually; "
-                + "it does not return UI element ids or OCR text. type_text, find, collect, wait_for and do_steps "
-                + "type_text is insertion-only at the current cursor and requires append=true plus a separate "
-                + "approval notification showing the exact text. Never enter passwords, one-time codes or payment details.";
+                + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
+                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll and type_text. "
+                + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
+                + "type_text requires append=true and a separate notification showing the exact text. "
+                + "If notifications are disabled, these actions are refused. read_screen has no UI element ids "
+                + "and no OCR text: inspect its image visually. find, collect, wait_for and do_steps remain "
+                + "unavailable. Never enter passwords, one-time codes, payment details or secrets.";
     }
 
     @Override
