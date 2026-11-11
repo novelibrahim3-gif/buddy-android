@@ -407,8 +407,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 for (int i = 0; i < choices.length(); i++) {
                     String option = choices.optString(i).trim();
                     if (option.isEmpty() || option.length() > 40) throw new IllegalArgumentException("Each answer must contain 1 to 40 characters.");
-                    options.add(option);
+                    if (!options.contains(option)) options.add(option);
                 }
+                if (options.size() < 2) throw new IllegalArgumentException("Give at least two different answer choices.");
                 JSONArray highlight = args.optJSONArray("highlight");
                 boolean showingMarks = highlight != null && highlight.length() > 0;
                 if (showingMarks) {
