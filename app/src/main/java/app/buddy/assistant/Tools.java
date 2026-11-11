@@ -1912,6 +1912,19 @@ final class Tools {
             case "quick_settings": action = AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS; break;
             default: throw new IllegalArgumentException("Unknown button " + button);
         }
+        // Prefer fixed, allow-listed KernelSU navigation commands when root is granted.
+        // These actions do not target app content; the regular Accessibility path remains a fallback.
+        try {
+            RootControl.pressSystemButton(button);
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "Pressed " + button + " using KernelSU.";
+        } catch (java.io.IOException rootUnavailable) {
+            android.util.Log.i("BuddyRoot", "Root navigation unavailable; using Accessibility global action", rootUnavailable);
+        }
         String before = "back".equals(button) ? beforeAction() : null;
         boolean ok = svc.performGlobalAction(action);
         try {
