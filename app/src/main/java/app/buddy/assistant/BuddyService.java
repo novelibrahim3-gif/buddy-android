@@ -78,6 +78,8 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
     protected void onServiceConnected() {
         super.onServiceConnected();
         instance = this;
+        // The Accessibility-backed handler owns the same loopback port when it is available.
+        stopService(new Intent(this, RootMcpService.class));
         Theme.load(this);
         orientation = getResources().getConfiguration().orientation;
         Models.set("claude", Prefs.claudeModels(this));
