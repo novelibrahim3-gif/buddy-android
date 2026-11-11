@@ -716,6 +716,7 @@ final class Tools {
     static void runStarted(String chat) {
         steps.remove(chat);
         lastStep.remove(chat);
+        RootMcpService.runStarted(chat);
     }
 
     /**
