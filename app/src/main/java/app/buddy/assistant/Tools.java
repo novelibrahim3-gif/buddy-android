@@ -1679,19 +1679,49 @@ final class Tools {
                 result += " The field now reads “" + ChatHub.clip(got, 200) + "”: check it with read_screen.";
             }
         } else {
-            Bundle args = new Bundle();
-            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
-            boolean ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (!ok) throw new IllegalStateException("This field did not accept text.");
-            result = "Typed " + text.length() + " characters.";
-            if (!target.isPassword()) { // some fields take the text and then change or drop it
-                Thread.sleep(150);
-                target.refresh();
-                CharSequence now = target.isShowingHintText() ? "" : target.getText();
-                String got = now == null ? "" : now.toString();
-                if (!got.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
-                    result += " The field now reads “" + ChatHub.clip(got, 200) + "”: check it with read_screen.";
+            // The target and password checks above still come from Accessibility, but actual key input
+            // can use KernelSU. If selection or shell input is unsupported, retain the established
+            // ACTION_SET_TEXT path rather than risking text in the wrong place.
+            boolean typedWithRoot = false;
+            if (!target.isPassword() && target.isFocused()) {
+                try {
+                    int end = cur == null ? 0 : cur.length();
+                    Bundle selection = new Bundle();
+                    selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, a.optBoolean("append") ? end : 0);
+                    selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end);
+                    if (target.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection) || end == 0) {
+                        RootControl.typeText(text);
+                        typedWithRoot = true;
+                    }
+                } catch (java.io.IOException rootUnavailable) {
+                    android.util.Log.i("BuddyRoot", "Root text input unavailable; using Accessibility set-text", rootUnavailable);
                 }
+            }
+            Thread.sleep(150);
+            target.refresh();
+            CharSequence now = target.isShowingHintText() ? "" : target.getText();
+            String got = now == null ? "" : now.toString();
+            if (!typedWithRoot || !got.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
+                Bundle args = new Bundle();
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+                boolean ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                if (!ok && !typedWithRoot) throw new IllegalStateException("This field did not accept text.");
+                if (!ok) {
+                    result = "Sent text through KernelSU, but the field could not be verified. Check it with read_screen.";
+                } else {
+                    result = "Typed " + text.length() + " characters.";
+                }
+                if (!target.isPassword()) {
+                    Thread.sleep(150);
+                    target.refresh();
+                    CharSequence corrected = target.isShowingHintText() ? "" : target.getText();
+                    String actual = corrected == null ? "" : corrected.toString();
+                    if (!actual.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
+                        result += " The field now reads “" + ChatHub.clip(actual, 200) + "”: check it with read_screen.";
+                    }
+                }
+            } else {
+                result = "Typed " + text.length() + " characters using KernelSU.";
             }
         }
         if (a.optBoolean("submit")) {
