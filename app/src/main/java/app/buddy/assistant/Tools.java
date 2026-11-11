@@ -1854,6 +1854,21 @@ final class Tools {
                     .addStroke(new GestureDescription.StrokeDescription(path, 0, durationMs)).build();
             if (svc.paused()) return false; // the user took the phone since this call began
             svc.autoPauser().ownGesture(durationMs); // Buddy's own touch: not the user taking the phone
+            // Prefer the allow-listed KernelSU input bridge when root has been granted. The same
+            // guard/approval checks have already run before gesture() is reached; if root is absent,
+            // keep the established Accessibility gesture path as a compatibility fallback.
+            if (path.points.size() >= 2) {
+                float[] from = path.points.get(0);
+                float[] to = path.points.get(path.points.size() - 1);
+                try {
+                    RootControl.swipe(svc, Math.round(from[0]), Math.round(from[1]),
+                            Math.round(to[0]), Math.round(to[1]), (int) durationMs);
+                    Thread.sleep(250);
+                    return true;
+                } catch (java.io.IOException rootUnavailable) {
+                    android.util.Log.i("BuddyRoot", "Root input unavailable; using Accessibility gesture", rootUnavailable);
+                }
+            }
             boolean dispatched = svc.dispatchGesture(g, new AccessibilityService.GestureResultCallback() {
                 @Override
                 public void onCompleted(GestureDescription d) {
