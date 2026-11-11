@@ -236,6 +236,8 @@ final class McpServer {
         } catch (Exception e) {
             Log.w(TAG, "request failed", e);
         } finally {
+            // Worker threads are reused: never retain one chat's identity for the next request.
+            CALLER_CHAT.remove();
             CALLER_GONE.remove();
             try {
                 s.close();
