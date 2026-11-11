@@ -279,7 +279,7 @@ final class PhoneTools {
         Intent send = new Intent(Intent.ACTION_SEND);
         if (!path.isEmpty()) {
             File f = agentFile(path);
-            File out = FilesProvider.shareFile(svc, f.getName());
+            File out = FilesProvider.shareFile(context, f.getName());
             copy(new FileInputStream(f), new java.io.FileOutputStream(out));
             Uri u = FilesProvider.shareUri(f.getName());
             send.setType(context.getContentResolver().getType(u)).putExtra(Intent.EXTRA_STREAM, u)
