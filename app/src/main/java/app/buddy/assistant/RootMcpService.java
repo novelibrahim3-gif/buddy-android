@@ -98,7 +98,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public String instructions() {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
-                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll and type_text. "
+                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
+                + "schedule_message, list_scheduled and cancel_scheduled. "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
