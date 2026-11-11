@@ -88,8 +88,9 @@ final class McpServer {
 
     private void acceptLoop() {
         while (running) {
+            ServerSocket ss = null;
             try {
-                ServerSocket ss = new ServerSocket();
+                ss = new ServerSocket();
                 ss.setReuseAddress(true);
                 ss.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT));
                 socket = ss;
@@ -103,8 +104,19 @@ final class McpServer {
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
                     return;
                 }
+            } finally {
+                // stop() can race with bind() before socket is published to the field.
+                // Always close the local socket on loop exit so the other runtime can bind the port.
+                if (ss != null) {
+                    try {
+                        ss.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                if (socket == ss) socket = null;
             }
         }
     }
