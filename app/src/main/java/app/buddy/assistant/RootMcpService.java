@@ -315,15 +315,18 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private JSONObject screenImage() throws Exception {
         byte[] png = RootControl.screenshot(this);
-        android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
-        if (bitmap == null) throw new java.io.IOException("KernelSU returned a screenshot that Android could not decode.");
+        android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
+        bounds.inJustDecodeBounds = true;
+        android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length, bounds);
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw new java.io.IOException("KernelSU returned a screenshot that Android could not decode.");
+        }
         JSONObject image = new JSONObject()
                 .put("type", "image")
                 .put("mimeType", "image/png")
                 .put("data", Base64.encodeToString(png, Base64.NO_WRAP));
-        int width = bitmap.getWidth();
-        int height = bitmap.getHeight();
-        bitmap.recycle();
+        int width = bounds.outWidth;
+        int height = bounds.outHeight;
         return new JSONObject().put("content", new JSONArray()
                 .put(image)
                 .put(new JSONObject().put("type", "text").put("text",
