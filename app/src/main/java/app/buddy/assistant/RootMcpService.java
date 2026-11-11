@@ -40,6 +40,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     private static final java.util.Set<String> SCREEN_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
             "read_screen", "screenshot", "tap", "long_press", "swipe", "scroll", "type_text", "press",
             "open_app", "open_url", "do_steps", "find", "collect", "wait_for", "point_out"));
+    private static final java.util.Set<String> SCREEN_ACTIONS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "tap", "long_press", "swipe", "scroll", "type_text", "press", "open_app", "open_url",
+            "do_steps", "find", "collect"));
     private volatile boolean active;
     private McpServer server;
     private PhoneTools phoneTools;
@@ -343,6 +346,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             return text("This chat's Background mode uses a separate virtual display that requires Accessibility. "
                     + "It is not available in the standalone KernelSU runtime. Turn Background mode off for this chat "
                     + "before using phone screen tools; browser_* remains available independently.");
+        }
+        if (SCREEN_ACTIONS.contains(name)) {
+            synchronized (marksLock) {
+                if (marksOverlay != null) marksOverlay.clear();
+            }
         }
         if (name != null && name.startsWith("browser_")) {
             if (!Browser.available(this)) {
