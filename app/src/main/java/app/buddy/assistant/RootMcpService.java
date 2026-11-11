@@ -861,8 +861,13 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private void requireUnlocked() {
+        android.hardware.display.DisplayManager displays =
+                getSystemService(android.hardware.display.DisplayManager.class);
+        android.view.Display display = displays == null ? null
+                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
         KeyguardManager keyguard = getSystemService(KeyguardManager.class);
-        if (!BuddyService.screenOn(this) || (keyguard != null && keyguard.isKeyguardLocked())) {
+        boolean screenOn = display != null && display.getState() == android.view.Display.STATE_ON;
+        if (!screenOn || (keyguard != null && keyguard.isKeyguardLocked())) {
             throw new IllegalStateException("The screen is off or the phone is locked. Turn the screen on and unlock it before using root screen tools.");
         }
     }
