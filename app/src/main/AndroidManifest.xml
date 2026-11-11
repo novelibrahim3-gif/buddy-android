@@ -249,6 +249,10 @@
             android:taskAffinity="" />
 
         <!-- Standalone local MCP runtime used only when Buddy's Accessibility service is disabled. -->
+        <receiver
+            android:name=".RootApprovalReceiver"
+            android:exported="false" />
+
         <service
             android:name=".RootMcpService"
             android:exported="false"
