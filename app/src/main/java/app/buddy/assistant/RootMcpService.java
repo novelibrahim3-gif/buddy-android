@@ -735,6 +735,11 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 }
                 String approval = RootApproval.request(this, summary, (countdown + 60L) * 1000L,
                         countdown > 0 ? countdown * 1000L : 0);
+                if (Triggers.userAnswered(chat)) return text("Not sent: the user replied while approval was pending.");
+                if (Triggers.wroteAgain(chat)) {
+                    Triggers.carryOver(chat);
+                    return text("Not sent: a newer message arrived while approval was pending. A new rule run should handle it.");
+                }
                 if ("TIMED OUT".equals(approval) || "UNAVAILABLE".equals(approval)) {
                     Triggers.later(this, chat, reply, why);
                     noteInChat(chat, R.string.card_note_later, "");
