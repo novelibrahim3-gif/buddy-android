@@ -111,7 +111,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
                 + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
-                + "list_scheduled, cancel_scheduled and phone_shell (only when Background mode and Phone commands are enabled). "
+                + "list_scheduled, cancel_scheduled, phone_shell and reply_notification (the last two require their user settings/rule context). "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
@@ -241,6 +241,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                         + "root escalation and commands targeting Buddy/accessibility settings are blocked; user approval follows the Phone commands setting.",
                 new JSONObject().put("command", stringProperty("Android shell command, max 4000 characters"))
                         .put("timeout_s", integerProperty("Default 60, maximum 300")), "command"));
+        tools.put(tool("reply_notification",
+                "Send one reply to the notification that started this notification-rule chat. The exact text requires one-time user approval; only one reply is allowed per run.",
+                new JSONObject().put("text", stringProperty("Exact reply text to send")), "text"));
         tools.put(tool("schedule_message",
                 "Schedule a one-time message or reminder in the current Buddy chat. Give in_minutes or at.",
                 new JSONObject().put("message", stringProperty("What to do or remind the user about"))
@@ -400,6 +403,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return updateBuddy(args.optBoolean("install", false));
             case "phone_shell":
                 return phoneShell(args);
+            case "reply_notification":
+                return replyNotification(args.getString("text"));
             case "schedule_message":
             case "list_scheduled":
             case "cancel_scheduled":
@@ -410,6 +415,35 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private JSONObject replyNotification(String value) throws Exception {
+        String chat = McpServer.CALLER_CHAT.get();
+        Triggers.Note note = Triggers.note(chat);
+        if (note == null) return text("There is no notification to answer in this chat; reply_notification only works in chats started by a notification rule.");
+        if (note.reply == null) return text("This notification has no reply field. Open " + note.app + " to answer instead.");
+        String reply = value == null ? "" : value.trim();
+        if (reply.isEmpty()) throw new IllegalArgumentException("Give the exact reply text.");
+        String already = Triggers.alreadyReplied(chat);
+        if (already != null) return text("Not sent: this run already replied with “" + already + "”. One reply per run is allowed.");
+        if (Triggers.userAnswered(chat)) return text("Not sent: the user has already replied in " + note.app + ".");
+        if (Triggers.wroteAgain(chat)) {
+            Triggers.carryOver(chat);
+            return text("Not sent: a newer message arrived in " + note.app + ". A new rule run should handle the latest messages.");
+        }
+        requireUnlocked();
+        String approval = RootApproval.request(this, "Send this exact reply to " + note.who() + " in " + note.app + "?\\n" + reply);
+        if (!"APPROVED".equals(approval)) return text("Not sent: " + approval + ".");
+        requireUnlocked();
+        if (Triggers.userAnswered(chat)) return text("Not sent: the user replied while approval was pending.");
+        if (Triggers.wroteAgain(chat)) {
+            Triggers.carryOver(chat);
+            return text("Not sent: a newer message arrived while approval was pending. A new rule run should handle it.");
+        }
+        if (!Triggers.sendReply(this, note.reply, reply)) {
+            return text("Not sent: " + note.app + " no longer accepts replies from this notification. Check the app before retrying.");
+        }
+        Triggers.replied(this, chat, reply);
+        return text("Sent to " + note.who() + " through " + note.app + " notification reply: “" + reply + "”. Do not send it again.");
+    }
     private JSONObject phoneShell(JSONObject args) throws Exception {
         String chat = McpServer.CALLER_CHAT.get();
         if (Triggers.ruleRun(chat)) return text("Not available in a notification rule run.");
