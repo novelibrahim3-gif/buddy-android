@@ -57,7 +57,7 @@ final class BrowserTools {
 
     static void list(JSONArray t) throws JSONException {
         t.put(tool("browser_open",
-                "Open a web page in Buddy's background browser (a separate browser the user can watch in this chat; "
+                "Open a web page in Buddy's background browser (a separate browser the user can watch in Buddy; "
                         + "it doesn't use the phone's screen). Returns the page as text, like browser_read.",
                 new JSONObject().put("url", str("The address, e.g. https://example.com"))
                         .put("new_tab", bool("Open it in a new tab, keeping the current one")), "url"));
