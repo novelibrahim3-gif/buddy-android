@@ -212,7 +212,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("collect",
                 "Visual collection: return up to four screenshots while scrolling. The agent reads visible text from the images; no OCR. Each scroll requires approval.",
                 new JSONObject().put("direction", directionProperty())
-                        .put("max_scrolls", integerProperty("1 to 4 screenshot pages, default 4")), "direction"));
+                        .put("max_scrolls", integerProperty("0 to 3 approved scrolls; up to 4 screenshots, default 3")), "direction"));
         tools.put(tool("wait",
                 "Wait for a short interval, up to 10 seconds.",
                 new JSONObject().put("ms", integerProperty("Milliseconds, 0 to 10000")), "ms"));
