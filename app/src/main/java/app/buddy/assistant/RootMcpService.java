@@ -1221,38 +1221,6 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         // Keep chat sessions and scheduled/notification-rule completion state current without Accessibility.
         main.post(() -> ChatHub.get(this).onEvent(event));
     }
-        JSONArray codex = event.optJSONArray("codex_models");
-        if (codex != null && codex.length() > 0) {
-            Prefs.setCodexModels(this, codex.toString());
-            Models.set("codex", codex.toString());
-        }
-        JSONArray opencode = event.optJSONArray("opencode_models");
-        if (opencode != null && opencode.length() > 0) {
-            Prefs.setOpencodeModels(this, opencode.toString());
-            Models.set("opencode", opencode.toString());
-        }
-        JSONArray agy = event.optJSONArray("agy_models");
-        if (agy != null && agy.length() > 0) {
-            Prefs.setAgyModels(this, agy.toString());
-            Models.set("agy", agy.toString());
-        }
-        JSONArray grok = event.optJSONArray("grok_models");
-        if (grok != null && grok.length() > 0) {
-            Prefs.setGrokModels(this, grok.toString());
-            Models.set("grok", grok.toString());
-        }
-            return;
-        }
-        String type = event.optString("type");
-        android.os.Handler main = new android.os.Handler(android.os.Looper.getMainLooper());
-        if ("buddy_procs".equals(type) || "buddy_recent".equals(type) || "buddy_transcript".equals(type)) {
-            main.post(() -> ChatHub.get(this).onMonitorEvent(event));
-            return;
-        }
-        // Keep chat sessions and scheduled/notification-rule completion state current without Accessibility.
-        main.post(() -> ChatHub.get(this).onEvent(event));
-    }
-
     @Override
     public java.io.File attachment(String id) {
         return Attachments.file(this, id);
