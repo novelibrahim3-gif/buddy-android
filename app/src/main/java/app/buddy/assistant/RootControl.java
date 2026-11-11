@@ -83,8 +83,10 @@ final class RootControl {
     static void typeText(String value) throws IOException {
         if (value == null || value.length() == 0) return;
         if (value.length() > MAX_TEXT_LENGTH) throw new IllegalArgumentException("Text is too long (max 2000 characters).");
-        if (value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0 || value.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("Text must not contain line breaks or control characters.");
+        for (int i = 0; i < value.length(); i++) {
+            if (Character.isISOControl(value.charAt(i))) {
+                throw new IllegalArgumentException("Text must not contain line breaks, tabs or control characters.");
+            }
         }
         // Android's input command reserves %s as its space escape. Reject the ambiguous literal sequence.
         if (value.contains("%s") || value.contains("%S")) {
