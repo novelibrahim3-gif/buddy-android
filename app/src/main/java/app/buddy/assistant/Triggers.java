@@ -1099,9 +1099,15 @@ final class Triggers implements ChatHub.Listener {
 
     /** The phone is locked or its screen is off: the user isn't looking at it. */
     static boolean locked(Context c) {
-        // the screen's own state, not PowerManager.isInteractive: that stays true while a background chat's display
-        // (a power group of its own) is awake
-        return c.getSystemService(KeyguardManager.class).isKeyguardLocked() || !BuddyService.screenOn(c);
+        // Use the phone's real display, not PowerManager.isInteractive: a background chat's display can be awake
+        // while the phone's own screen is off.
+        android.hardware.display.DisplayManager displays =
+                c.getSystemService(android.hardware.display.DisplayManager.class);
+        android.view.Display display = displays == null ? null
+                : displays.getDisplay(android.view.Display.DEFAULT_DISPLAY);
+        boolean screenOn = display == null || display.getState() == android.view.Display.STATE_ON;
+        KeyguardManager keyguard = c.getSystemService(KeyguardManager.class);
+        return (keyguard != null && keyguard.isKeyguardLocked()) || !screenOn;
     }
 
     /** The agent and an approval countdown keep working with the screen off. */
