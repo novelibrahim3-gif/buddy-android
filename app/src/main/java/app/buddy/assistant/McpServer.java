@@ -52,6 +52,11 @@ final class McpServer {
 
         /** The attachment file for an id, or null. */
         java.io.File attachment(String id);
+
+        /** Instructions for this runtime; the default is the full Accessibility-backed Buddy toolset. */
+        default String instructions() {
+            return INSTRUCTIONS;
+        }
     }
 
     private final String token;
@@ -265,7 +270,7 @@ final class McpServer {
                             .put("protocolVersion", params.optString("protocolVersion", DEFAULT_PROTOCOL))
                             .put("capabilities", new JSONObject().put("tools", new JSONObject()))
                             .put("serverInfo", new JSONObject().put("name", "buddy-phone").put("version", BuildInfo.VERSION))
-                            .put("instructions", INSTRUCTIONS);
+                            .put("instructions", handler.instructions());
                     return res.put("result", result);
                 }
                 case "ping":
