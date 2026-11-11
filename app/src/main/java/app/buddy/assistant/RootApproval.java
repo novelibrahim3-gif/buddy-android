@@ -103,6 +103,11 @@ final class RootApproval {
      * Returns the exact selected/typed answer, or null when notifications are unavailable or time out.
      */
     static String requestChoice(Context context, String question, List<String> options) {
+        return requestChoice(context, question, options, null);
+    }
+
+    /** As above, with an optional user-tapped notification destination (used for guided browser steps). */
+    static String requestChoice(Context context, String question, List<String> options, Intent contentIntent) {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         if (!manager.areNotificationsEnabled()) return null;
         if (Build.VERSION.SDK_INT >= 26) {
@@ -129,6 +134,14 @@ final class RootApproval {
                             .build())
                     .setAutoCancel(true)
                     .setTimeoutAfter(QUESTION_TIMEOUT_MS);
+            if (contentIntent != null) {
+                Intent open = new Intent(contentIntent)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+                PendingIntent destination = PendingIntent.getActivity(context, id * 8 + 8, open, flags);
+                builder.setContentIntent(destination)
+                        .setStyle(new Notification.BigTextStyle().bigText(question
+                                + "\nTap this notification to open the marked browser page, or choose an answer or use Reply."));
+            }
             for (int i = 0; i < options.size(); i++) {
                 String option = options.get(i);
                 Intent choice = new Intent(context, RootApprovalReceiver.class)
