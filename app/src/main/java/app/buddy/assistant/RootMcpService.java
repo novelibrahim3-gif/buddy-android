@@ -303,7 +303,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text(openUrl(args.getString("url")));
             case "tap": {
                 int x = args.getInt("x"), y = args.getInt("y");
-                requireUnlocked();
+                requireUnlocked("tap");
                 requirePoint(x, y);
                 String approval = RootApproval.request(this, "Tap screen coordinate (" + x + ", " + y + ")?");
                 if (!"APPROVED".equals(approval)) return text("Tap not performed: " + approval + ".");
@@ -314,7 +314,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "long_press": {
                 int x = args.getInt("x"), y = args.getInt("y");
                 int duration = (int) Math.max(250, Math.min(5000, args.optLong("duration_ms", 700)));
-                requireUnlocked();
+                requireUnlocked("long_press");
                 requirePoint(x, y);
                 String approval = RootApproval.request(this, "Long-press (" + x + ", " + y + ") for " + duration + " ms?");
                 if (!"APPROVED".equals(approval)) return text("Long-press not performed: " + approval + ".");
@@ -326,7 +326,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 int x1 = args.getInt("x1"), y1 = args.getInt("y1");
                 int x2 = args.getInt("x2"), y2 = args.getInt("y2");
                 int duration = (int) Math.max(50, Math.min(5000, args.optLong("duration_ms", 300)));
-                requireUnlocked();
+                requireUnlocked("swipe");
                 requirePoint(x1, y1);
                 requirePoint(x2, y2);
                 String approval = RootApproval.request(this, "Swipe from (" + x1 + ", " + y1 + ") to ("
@@ -338,7 +338,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "scroll": {
                 String direction = args.getString("direction");
-                requireUnlocked();
+                requireUnlocked("scroll");
                 android.util.DisplayMetrics dm = getResources().getDisplayMetrics();
                 int cx = dm.widthPixels / 2, cy = dm.heightPixels / 2;
                 int x1 = cx, y1 = cy, x2 = cx, y2 = cy;
@@ -357,7 +357,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             }
             case "type_text": {
                 String value = args.getString("text");
-                requireUnlocked();
+                requireUnlocked("type_text");
                 if (!args.optBoolean("append", false)) {
                     throw new IllegalArgumentException("Accessibility-off typing is insertion-only. Set append=true after placing the cursor.");
                 }
@@ -385,7 +385,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return text("Inserted " + value.length() + " characters using KernelSU.");
             }
             case "press":
-                requireUnlocked();
+                requireUnlocked("press");
                 RootControl.pressSystemButton(args.getString("button"));
                 return text("Pressed " + args.getString("button") + " using KernelSU.");
             case "do_steps":
@@ -404,10 +404,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String summary = args.getString("summary").trim();
                 if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
                 if (summary.length() > 500) throw new IllegalArgumentException("Approval summaries are limited to 500 characters.");
-                requireUnlocked();
                 String approval = RootApproval.request(this, "Approve this action?\n" + summary);
                 if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
-                requireUnlocked();
                 return text("APPROVED by the user. Go ahead.");
             }
             case "ask": {
@@ -433,7 +431,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 }
                 java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(highlight);
                 synchronized (marksLock) {
-                    requireUnlocked();
+                    requireUnlocked("ask");
                     if (!ensureOverlayPermission()) return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call ask again.");
                     if (marksOverlay == null) marksOverlay = new RootMarksOverlay(this);
                     marksOverlay.show(marks, "box", 5 * 60_000L);
@@ -517,7 +515,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             throw new IllegalArgumentException("Style must be box, circle or arrow.");
         }
         java.util.ArrayList<RootMarksOverlay.Mark> marks = coordinateMarks(values);
-        requireUnlocked();
+        requireUnlocked("point_out");
         if (!ensureOverlayPermission()) {
             return text("Android overlay settings are open. Enable Display over other apps for Buddy, then call point_out again.");
         }
@@ -546,10 +544,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             Triggers.carryOver(chat);
             return text("Not sent: a newer message arrived in " + note.app + ". A new rule run should handle the latest messages.");
         }
-        requireUnlocked();
         String approval = RootApproval.request(this, "Send this exact reply to " + note.who() + " in " + note.app + "?\n" + reply);
         if (!"APPROVED".equals(approval)) return text("Not sent: " + approval + ".");
-        requireUnlocked();
         if (Triggers.userAnswered(chat)) return text("Not sent: the user replied while approval was pending.");
         if (Triggers.wroteAgain(chat)) {
             Triggers.carryOver(chat);
@@ -721,7 +717,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private JSONObject visualScan(String mode, JSONObject args) throws Exception {
-        requireUnlocked();
+        requireUnlocked(mode);
         if (args.has("element")) throw new IllegalArgumentException("Root-only visual scans do not accept Accessibility element ids.");
         String query = "";
         if ("find".equals(mode)) {
@@ -787,7 +783,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (app.isEmpty() && !settled) {
             throw new IllegalArgumentException("Give app, settled=true, or both.");
         }
-        requireUnlocked();
+        requireUnlocked("wait_for");
         long timeout = Math.max(500, Math.min(30000, args.optLong("timeout_ms", 8000)));
         long start = android.os.SystemClock.elapsedRealtime();
         long stableSince = start;
@@ -872,6 +868,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private void requireUnlocked(String tool) throws InterruptedException {
+        String waiting = Schedules.awaitUnlock(this, McpServer.CALLER_CHAT.get(), tool);
+        if (waiting != null) throw new IllegalStateException(waiting);
+        requireUnlocked();
+    }
+
     private void requireUnlocked() {
         android.hardware.display.DisplayManager displays =
                 getSystemService(android.hardware.display.DisplayManager.class);
@@ -920,7 +922,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private JSONObject screenImage() throws Exception {
-        requireUnlocked();
+        requireUnlocked("read_screen");
         byte[] png = RootControl.screenshot(this);
         android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
@@ -990,8 +992,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return out.length() == 0 ? "No launchable apps were found." : out.toString();
     }
 
-    private String openApp(String query) {
-        requireUnlocked();
+    private String openApp(String query) throws InterruptedException {
+        requireUnlocked("open_app");
         String wanted = query == null ? "" : query.trim();
         if (wanted.isEmpty()) throw new IllegalArgumentException("App name or package is required.");
         PackageManager pm = getPackageManager();
@@ -1025,8 +1027,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         return "Opened " + match.loadLabel(pm) + " (" + match.activityInfo.packageName + ").";
     }
 
-    private String openUrl(String value) {
-        requireUnlocked();
+    private String openUrl(String value) throws InterruptedException {
+        requireUnlocked("open_url");
         Uri uri = Uri.parse(value == null ? "" : value.trim());
         String scheme = uri.getScheme();
         if (scheme == null) throw new IllegalArgumentException("The URL must include an allowed scheme.");
