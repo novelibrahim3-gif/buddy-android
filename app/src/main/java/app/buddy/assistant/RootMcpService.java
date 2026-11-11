@@ -121,7 +121,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
                 + "read_screen has no UI element ids "
-                + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
+                + "and no OCR text: inspect its image visually. find/collect are not exposed because they need element/text extraction unavailable without Accessibility/OCR; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "ask.highlight and point_out accept coordinate marks only; point_out cannot wait for completion. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
@@ -381,6 +381,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "confirm": {
                 String summary = args.getString("summary").trim();
                 if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
+                if (summary.length() > 500) throw new IllegalArgumentException("Approval summaries are limited to 500 characters.");
                 requireUnlocked();
                 String approval = RootApproval.request(this, "Approve this action?\n" + summary);
                 if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
@@ -391,6 +392,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String question = args.getString("question").trim();
                 JSONArray choices = args.getJSONArray("options");
                 if (question.isEmpty()) throw new IllegalArgumentException("Give a question.");
+                if (question.length() > 200) throw new IllegalArgumentException("Questions are limited to 200 characters.");
                 if (choices.length() < 2 || choices.length() > 4) throw new IllegalArgumentException("Give 2 to 4 answer choices.");
                 java.util.ArrayList<String> options = new java.util.ArrayList<>();
                 for (int i = 0; i < choices.length(); i++) {
@@ -505,6 +507,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         if (note.reply == null) return text("This notification has no reply field. Open " + note.app + " to answer instead.");
         String reply = value == null ? "" : value.trim();
         if (reply.isEmpty()) throw new IllegalArgumentException("Give the exact reply text.");
+        if (reply.length() > 2000) throw new IllegalArgumentException("Replies are limited to 2000 characters.");
         String already = Triggers.alreadyReplied(chat);
         if (already != null) return text("Not sent: this run already replied with “" + already + "”. One reply per run is allowed.");
         if (Triggers.userAnswered(chat)) return text("Not sent: the user has already replied in " + note.app + ".");
