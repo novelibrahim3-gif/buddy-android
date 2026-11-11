@@ -114,7 +114,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public String instructions() {
         return "You are connected to Buddy's standalone KernelSU runtime. Accessibility is OFF. "
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
-                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
+                + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, point_out, notify, "
                 + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
                 + "list_scheduled, cancel_scheduled, phone_shell and reply_notification (the last two require their user settings/rule context). "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
@@ -233,7 +233,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                                 .put("required", new JSONArray().put("x").put("y"))))
                         .put("style", new JSONObject().put("type", "string").put("enum", new JSONArray().put("box").put("circle").put("arrow")))
                         .put("seconds", integerProperty("1 to 300 seconds, default 60"))
-                        .put("wait", new JSONObject().put("type", "boolean").put("description", "Must be false; completion cannot be detected"))), "marks"));
+                        .put("wait", new JSONObject().put("type", "boolean").put("description", "Must be false; completion cannot be detected")), "marks"));
         tools.put(tool("notify",
                 "Update the persistent Buddy root-runtime notification with a short status message.",
                 new JSONObject().put("text", stringProperty("Status text, max 180 characters")), "text"));
@@ -386,9 +386,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 String approval = RootApproval.request(this, "Approve this action?\n" + summary);
                 if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
                 requireUnlocked();
-                if ("APPROVED".equals(approval)) return text("APPROVED by the user. Go ahead.");
-                if ("DENIED".equals(approval)) return text("DENIED by the user. Do not do it.");
-                return text("NO ANSWER: approval " + approval.toLowerCase(java.util.Locale.ROOT) + ". Do not proceed.");
+                return text("APPROVED by the user. Go ahead.");
             }
             case "ask": {
                 String question = args.getString("question").trim();
