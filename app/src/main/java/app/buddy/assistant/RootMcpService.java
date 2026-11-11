@@ -540,14 +540,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                             + "] on the page now. Call browser_read again.";
                 }
             }
-            try {
-                startActivity(new Intent(this, BrowserActivity.class).putExtra("key", key)
-                        .putExtra("guided", true).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-            } catch (Exception e) {
-                return "Buddy couldn't open the guided browser view: " + e.getMessage()
-                        + ". Open the Background Browser from Buddy, then retry ask.";
-            }
-            String answer = RootApproval.requestChoice(this, question, options);
+            Intent open = new Intent(this, BrowserActivity.class).putExtra("key", key)
+                    .putExtra("guided", true);
+            String answer = RootApproval.requestChoice(this, question, options, open);
             return answer == null || answer.isEmpty()
                     ? "NO ANSWER: notifications are unavailable or the user did not answer within 5 minutes."
                     : "ANSWER: “" + answer + "”";
