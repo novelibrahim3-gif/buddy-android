@@ -359,11 +359,19 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 if (!args.optBoolean("append", false)) {
                     throw new IllegalArgumentException("Accessibility-off typing is insertion-only. Set append=true after placing the cursor.");
                 }
+                if (value.isEmpty()) throw new IllegalArgumentException("Give non-empty text to insert.");
                 if (value.length() > 200) throw new IllegalArgumentException("Text is limited to 200 characters per approved action.");
-                String lower = value.toLowerCase(java.util.Locale.ROOT);
-                if (value.matches("[0-9]{3,8}") || lower.contains("password") || lower.contains("passcode")
-                        || lower.contains("one-time code") || lower.contains("otp") || lower.contains("cvv") || lower.equals("pin")
-                        || lower.startsWith("pin ") || lower.endsWith(" pin") || lower.contains(" pin ")) {
+                for (int i = 0; i < value.length(); i++) {
+                    if (Character.isISOControl(value.charAt(i))) {
+                        throw new IllegalArgumentException("Text must not contain line breaks, tabs or control characters.");
+                    }
+                }
+                if (value.contains("%s") || value.contains("%S")) {
+                    throw new IllegalArgumentException("Text contains the reserved Android input sequence %s.");
+                }
+                if (value.matches("[0-9]{3,8}") || java.util.regex.Pattern
+                        .compile("(?i)\\b(?:password|passcode|one-time\\s+code|otp|cvv|pin)\\b")
+                        .matcher(value).find()) {
                     throw new IllegalArgumentException("Sensitive credential-like text is not accepted by root typing.");
                 }
                 String approval = RootApproval.request(this, "Type exactly: " + value);
