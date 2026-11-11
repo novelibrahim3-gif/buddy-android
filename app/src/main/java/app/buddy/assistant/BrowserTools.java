@@ -219,6 +219,11 @@ final class BrowserTools {
         return sb.toString();
     }
 
+    private String guidedBrowserInstruction() {
+        return root == null ? "Buddy opens the browser for them with those marked"
+                : "the user taps the Buddy asks notification to open the marked browser view";
+    }
+
     /** What the page asks of the agent: a sign-in or a bot check (both are the user's to do), or null. */
     private String signals(String key) {
         try {
@@ -226,8 +231,8 @@ final class BrowserTools {
             String site = host(key);
             if (s.optBoolean("bot")) {
                 return "BOT CHECK: " + site + " shows a captcha or a robot check. Don't try to solve it. Ask the user (ask) to "
-                        + "solve it, with browser_highlight on the captcha's item (Buddy opens the browser for them with it "
-                        + "marked) and options like [\"Done\", \"Use the phone instead\"], or switch to the phone (open_url).";
+                        + "solve it, with browser_highlight on the captcha's item (" + guidedBrowserInstruction()
+                        + ") and options like [\"Done\", \"Use the phone instead\"], or switch to the phone (open_url).";
             }
             if (s.optBoolean("blocked")) {
                 return "BLOCKED BY THE SITE: " + site + " refuses this browser. Use the phone instead (open_url).";
@@ -236,7 +241,7 @@ final class BrowserTools {
                 return "SIGN-IN: this page asks to sign in. Never type passwords or codes. Ask the user (ask) to sign in "
                         + "themselves, e.g. \"Please sign in to " + site + ", then tap Done\" with options [\"Done\", \"Use "
                         + "the phone instead\"] and browser_highlight on the fields and the sign-in button (call browser_read "
-                        + "for their numbers): Buddy opens the browser for them with those marked. Signing in "
+                        + "for their numbers): " + guidedBrowserInstruction() + ". Signing in "
                         + "with Google often fails in this browser: email and password works better. Or do this on the "
                         + "phone (open_url), where the user may be signed in already.";
             }
