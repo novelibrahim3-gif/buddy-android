@@ -1,0 +1,150 @@
+package app.buddy.assistant;
+
+import android.content.Context;
+import android.util.DisplayMetrics;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Narrow, allow-listed root bridge for screen I/O.
+ *
+ * This deliberately does not expose a general shell. Callers can request only
+ * bounded input events or a screenshot, so MCP arguments can never become
+ * arbitrary commands passed to KernelSU.
+ */
+final class RootControl {
+    private static final String SU = "/system/bin/su";
+    private static final long COMMAND_TIMEOUT_SECONDS = 10;
+    private static final int MAX_TEXT_LENGTH = 2000;
+    private static final Set<String> KEYS = new HashSet<>(Arrays.asList(
+            "BACK", "HOME", "APP_SWITCH", "ENTER", "DEL", "TAB",
+            "DPAD_UP", "DPAD_DOWN", "DPAD_LEFT", "DPAD_RIGHT",
+            "MOVE_HOME", "MOVE_END", "PAGE_UP", "PAGE_DOWN",
+            "VOLUME_UP", "VOLUME_DOWN", "POWER", "MENU"));
+
+    private RootControl() {
+    }
+
+    static boolean available() {
+        try {
+            return "0".equals(run("id -u").trim());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static void tap(Context context, int x, int y) throws IOException {
+        checkPoint(context, x, y);
+        run("input tap " + x + " " + y);
+    }
+
+    static void longPress(Context context, int x, int y, int durationMs) throws IOException {
+        checkPoint(context, x, y);
+        int duration = Math.max(250, Math.min(5000, durationMs));
+        run("input swipe " + x + " " + y + " " + x + " " + y + " " + duration);
+    }
+
+    static void swipe(Context context, int x1, int y1, int x2, int y2, int durationMs) throws IOException {
+        checkPoint(context, x1, y1);
+        checkPoint(context, x2, y2);
+        int duration = Math.max(50, Math.min(5000, durationMs));
+        run("input swipe " + x1 + " " + y1 + " " + x2 + " " + y2 + " " + duration);
+    }
+
+    static void press(String key) throws IOException {
+        if (key == null) throw new IllegalArgumentException("A key is required.");
+        String normalized = key.trim().toUpperCase(java.util.Locale.ROOT);
+        if (normalized.startsWith("KEYCODE_")) normalized = normalized.substring(8);
+        if (!KEYS.contains(normalized)) throw new IllegalArgumentException("Unsupported key: " + key);
+        run("input keyevent KEYCODE_" + normalized);
+    }
+
+    static void typeText(String value) throws IOException {
+        if (value == null || value.length() == 0) return;
+        if (value.length() > MAX_TEXT_LENGTH) throw new IllegalArgumentException("Text is too long (max 2000 characters).");
+        if (value.indexOf('\n') >= 0 || value.indexOf('\r') >= 0 || value.indexOf('\0') >= 0) {
+            throw new IllegalArgumentException("Text must not contain line breaks or control characters.");
+        }
+        // Android's input command reserves %s as its space escape. Reject the ambiguous literal sequence.
+        if (value.contains("%s") || value.contains("%S")) {
+            throw new IllegalArgumentException("Text contains the reserved Android input sequence %s.");
+        }
+        run("input text " + quote(value.replace(" ", "%s")));
+    }
+
+    static byte[] screenshot(Context context) throws IOException {
+        File target = File.createTempFile("buddy-root-screen-", ".png", context.getCacheDir());
+        try {
+            run("screencap -p > " + quote(target.getAbsolutePath()) + " && chmod 644 "
+                    + quote(target.getAbsolutePath()));
+            if (!target.isFile() || target.length() < 8) throw new IOException("Root screencap returned an empty image.");
+            try (FileInputStream in = new FileInputStream(target);
+                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[16 * 1024];
+                int n;
+                while ((n = in.read(buffer)) != -1) out.write(buffer, 0, n);
+                return out.toByteArray();
+            }
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            target.delete();
+        }
+    }
+
+    private static void checkPoint(Context context, int x, int y) {
+        DisplayMetrics dm = context.getResources().getDisplayMetrics();
+        if (x < 0 || y < 0 || x >= dm.widthPixels || y >= dm.heightPixels) {
+            throw new IllegalArgumentException("Coordinates are outside the current display bounds.");
+        }
+    }
+
+    private static String run(String command) throws IOException {
+        Process process;
+        try {
+            process = new ProcessBuilder(SU, "-c", command).redirectErrorStream(true).start();
+        } catch (IOException e) {
+            throw new IOException("KernelSU/su could not be started. Grant Buddy root access in KernelSU, then retry.", e);
+        }
+        boolean finished;
+        try {
+            finished = process.waitFor(COMMAND_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                throw new IOException("Root command timed out.");
+            }
+            byte[] output;
+            try (java.io.InputStream in = process.getInputStream();
+                 ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                byte[] buffer = new byte[4096];
+                int n;
+                while ((n = in.read(buffer)) != -1) {
+                    if (out.size() + n > 32 * 1024) break;
+                    out.write(buffer, 0, n);
+                }
+                output = out.toByteArray();
+            }
+            String message = new String(output, StandardCharsets.UTF_8).trim();
+            if (process.exitValue() != 0) {
+                if (message.isEmpty()) message = "exit " + process.exitValue();
+                throw new IOException("Root command failed: " + message);
+            }
+            return message;
+        } catch (InterruptedException e) {
+            process.destroyForcibly();
+            Thread.currentThread().interrupt();
+            throw new IOException("Root command was interrupted.", e);
+        }
+    }
+
+    private static String quote(String value) {
+        return "'" + value.replace("'", "'\\''") + "'";
+    }
+}
