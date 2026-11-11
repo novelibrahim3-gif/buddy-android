@@ -106,7 +106,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
-    void showBrowserActivity(String status) {
+    void showRuntimeStatus(String status) {
         NotificationManager manager = getSystemService(NotificationManager.class);
         if (manager != null && manager.areNotificationsEnabled()) {
             String safe = status == null ? "Browsing" : status;
