@@ -459,7 +459,7 @@ final class BrowserTools {
         }
         String status = "?".equals(site) ? what : context.getString(R.string.activity_browsing, site, what);
         if (svc != null) svc.showActivity(status, key);
-        else if (root != null) root.showBrowserActivity(status);
+        else if (root != null) root.showRuntimeStatus(status);
     }
 
     private static String stale(int ref) {
