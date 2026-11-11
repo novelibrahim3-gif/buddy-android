@@ -119,8 +119,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "and no OCR text: inspect its image visually. find/collect are not exposed because they need OCR; "
                 + "wait_for supports only settled=true (700 ms without visual changes), not text/gone/app matching. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
-                + "point_out is unavailable without the overlay/element map; reply_notification is not migrated; "
-                + "phone_shell is intentionally not exposed in root mode. Never enter passwords, one-time codes, "
+                + "point_out is unavailable without the overlay/element map; reply_notification works only in an active notification-rule chat "
+                + "and requires one-shot approval; phone_shell uses the paired Wireless debugging helper as Android shell user only when "
+                + "the user enables Phone commands and Linux tools. It never escalates to root. Never enter passwords, one-time codes, "
                 + "payment details or secrets.";
     }
 
@@ -364,7 +365,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
             case "confirm": {
                 String summary = args.getString("summary").trim();
                 if (summary.isEmpty()) throw new IllegalArgumentException("Give the exact action to approve.");
+                requireUnlocked();
                 String approval = RootApproval.request(this, "Approve this action?\\n" + summary);
+                if (!"APPROVED".equals(approval)) return text("NO APPROVAL: " + approval + ". Do not proceed.");
+                requireUnlocked();
                 if ("APPROVED".equals(approval)) return text("APPROVED by the user. Go ahead.");
                 if ("DENIED".equals(approval)) return text("DENIED by the user. Do not do it.");
                 return text("NO ANSWER: approval " + approval.toLowerCase(java.util.Locale.ROOT) + ". Do not proceed.");
