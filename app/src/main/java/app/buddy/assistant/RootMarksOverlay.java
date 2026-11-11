@@ -160,6 +160,12 @@ final class RootMarksOverlay {
                     float startX = Math.max(pill.left + 12 * d, Math.min(x, pill.right - 12 * d));
                     float startY = top < y ? pill.bottom : pill.top;
                     canvas.drawLine(startX, startY, x, y, ring);
+                    double angle = Math.atan2(y - startY, x - startX);
+                    float head = 10 * d;
+                    canvas.drawLine(x, y, (float) (x - head * Math.cos(angle - 0.55)),
+                            (float) (y - head * Math.sin(angle - 0.55)), ring);
+                    canvas.drawLine(x, y, (float) (x - head * Math.cos(angle + 0.55)),
+                            (float) (y - head * Math.sin(angle + 0.55)), ring);
                 }
                 canvas.drawRoundRect(pill, labelHeight / 2, labelHeight / 2, labelBg);
                 Paint.FontMetrics fm = labelText.getFontMetrics();
