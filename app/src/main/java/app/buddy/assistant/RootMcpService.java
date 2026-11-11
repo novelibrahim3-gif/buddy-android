@@ -111,7 +111,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "Available tools: read_screen/screenshot (visual image only), root_status, list_apps, "
                 + "open_app, open_url, press, wait, tap, long_press, swipe, scroll, type_text, confirm, ask, notify, "
                 + "wait_for (settled-only), wait_for_install, install_apk, update_buddy, schedule_message, "
-                + "list_scheduled and cancel_scheduled. "
+                + "list_scheduled, cancel_scheduled and phone_shell (only when Background mode and Phone commands are enabled). "
                 + "Every tap, long_press, swipe and scroll requires a one-time Approve/Deny notification; "
                 + "type_text requires append=true and a separate notification showing the exact text. "
                 + "If notifications are disabled, these actions are refused. Screen actions are also blocked while locked or off. "
@@ -235,6 +235,12 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                         + "the user must approve and tap Update.",
                 new JSONObject().put("install", new JSONObject().put("type", "boolean")
                         .put("description", "Download and open the installer only when true"))));
+        tools.put(tool("phone_shell",
+                "Run a command as Android shell user through Buddy Wireless debugging helper, not as root. "
+                        + "Requires Settings → Background mode → Phone commands and Linux tools. Screen-control commands, "
+                        + "root escalation and commands targeting Buddy/accessibility settings are blocked; user approval follows the Phone commands setting.",
+                new JSONObject().put("command", stringProperty("Android shell command, max 4000 characters"))
+                        .put("timeout_s", integerProperty("Default 60, maximum 300")), "command"));
         tools.put(tool("schedule_message",
                 "Schedule a one-time message or reminder in the current Buddy chat. Give in_minutes or at.",
                 new JSONObject().put("message", stringProperty("What to do or remind the user about"))
@@ -392,6 +398,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return installApk(args.getString("path"));
             case "update_buddy":
                 return updateBuddy(args.optBoolean("install", false));
+            case "phone_shell":
+                return phoneShell(args);
             case "schedule_message":
             case "list_scheduled":
             case "cancel_scheduled":
@@ -402,6 +410,38 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         }
     }
 
+    private JSONObject phoneShell(JSONObject args) throws Exception {
+        String chat = McpServer.CALLER_CHAT.get();
+        if (Triggers.ruleRun(chat)) return text("Not available in a notification rule run.");
+        if (!Prefs.phoneShell(this) || !Background.setUp(this)) {
+            return text("Phone commands are off. The user must enable Settings → Background mode → Phone commands and set up Background mode first.");
+        }
+        if (!ChatHub.get(this).devFor(chat)) {
+            return text("Phone commands also need Linux tools enabled in this Buddy chat. Enable them, then retry.");
+        }
+        String command = args.getString("command").trim();
+        if (command.isEmpty()) throw new IllegalArgumentException("Give the command.");
+        if (command.length() > 4000) throw new IllegalArgumentException("Command is limited to 4000 characters.");
+        java.util.regex.Pattern blocked = java.util.regex.Pattern.compile(
+                "(?:^|[\\s;&|(`])(?:/system/bin/)?(?:input|sendevent|monkey|uiautomator|su|ksud|magisk|sudo)(?:\\s|$)"
+                        + "|cmd\\s+input|app\\.buddy\\.assistant|enabled_accessibility_services|accessibility_enabled");
+        if (blocked.matcher(command).find()) {
+            return text("BLOCKED: phone_shell cannot control the screen, escalate to root, or change Buddy/accessibility settings. Use the approved phone tools for screen actions.");
+        }
+        int seconds = (int) Math.max(1, Math.min(300, args.optInt("timeout_s", 60)));
+        if (Prefs.phoneShellAsk(this)) {
+            String approval = RootApproval.request(this, "Run this command as Android shell user?\\n" + command);
+            if (!"APPROVED".equals(approval)) return text("Not run: " + approval + ".");
+        }
+        try {
+            String[] result = Background.exec(this, command, seconds);
+            String output = result[1].length() > 20000 ? "…" + result[1].substring(result[1].length() - 20000) : result[1];
+            return text(("-1".equals(result[0]) ? "Stopped after " + seconds + " s without finishing." : "Exit code " + result[0] + ".")
+                    + (output.trim().isEmpty() ? " No output." : "\\n" + output));
+        } catch (Background.Unavailable e) {
+            return text("The command failed: " + e.getMessage() + ".");
+        }
+    }
     private JSONObject installApk(String path) throws Exception {
         requireUnlocked();
         String chat = McpServer.CALLER_CHAT.get();
