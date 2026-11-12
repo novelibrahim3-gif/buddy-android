@@ -12,38 +12,30 @@ permissions:
   contents: read
 
 jobs:
-  android-runner:
+  buddy-helper-tests:
     runs-on: self-hosted
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
-      - name: Identify the machine running this job
+      - name: Get Buddy source
         shell: bash
         run: |
           set -eu
-          echo "=== DROIDRUNNER DIAGNOSTIC ==="
-          echo "HOSTNAME=$(hostname)"
-          echo "RUNNER_NAME=${RUNNER_NAME:-unknown}"
-          echo "RUNNER_OS=${RUNNER_OS:-unknown}"
-          echo "RUNNER_ARCH=${RUNNER_ARCH:-unknown}"
-          echo "=== KERNEL / ARCH ==="
-          uname -a
-          uname -m
-          echo "=== ANDROID DEVICE ==="
-          if command -v getprop >/dev/null 2>&1; then
-            echo "MODEL=$(getprop ro.product.model)"
-            echo "ANDROID_API=$(getprop ro.build.version.sdk)"
-            echo "DEVICE=$(getprop ro.product.device)"
-          else
-            echo "getprop not available in this runner environment"
+          SRC="${RUNNER_TEMP:-/tmp}/buddy-droidrunner-test"
+          rm -rf "$SRC"
+          git clone --depth 1 --branch main https://github.com/novelibrahim3-gif/buddy-android.git "$SRC"
+          echo "BUDDY_SOURCE=$SRC" >> "$GITHUB_ENV"
+
+      - name: Run Buddy recorded-agent integration tests
+        shell: bash
+        run: |
+          set -eu
+          cd "$BUDDY_SOURCE"
+          echo "=== BUDDY HELPER TESTS ON ANDROID RUNNER ==="
+          echo "COMMIT=$(git rev-parse --short HEAD)"
+          echo "ARCH=$(uname -m)"
+          if ! command -v jq >/dev/null 2>&1; then
+            echo "BLOCKED: jq is not installed in the DroidRunner environment."
+            exit 2
           fi
-          echo "=== TOOLCHAIN ==="
-          command -v bash || true
-          command -v git || true
-          command -v java || true
-          command -v clang || true
-          echo "=== STORAGE ==="
-          df -h
-          echo "=== MEMORY ==="
-          if command -v free >/dev/null 2>&1; then free -h; else cat /proc/meminfo | head -12; fi
-          echo "=== SUCCESS MARKER ==="
-          echo "DROIDRUNNER_TEST_SUCCESS"
+          bash linux/test/run.sh
+          echo "BUDDY_HELPER_TESTS_SUCCESS"
