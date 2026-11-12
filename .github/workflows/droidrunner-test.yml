@@ -33,9 +33,25 @@ jobs:
           echo "=== BUDDY HELPER TESTS ON ANDROID RUNNER ==="
           echo "COMMIT=$(git rev-parse --short HEAD)"
           echo "ARCH=$(uname -m)"
-          if ! command -v jq >/dev/null 2>&1; then
-            echo "BLOCKED: jq is not installed in the DroidRunner environment."
+          command -v python3 >/dev/null 2>&1 || {
+            echo "BLOCKED: python3 is not installed; cannot provide JSON normalization."
             exit 2
-          fi
-          bash linux/test/run.sh
+          }
+          BIN="${RUNNER_TEMP:-/tmp}/buddy-test-bin"
+          mkdir -p "$BIN"
+          cat > "$BIN/jq" <<'PY'
+          #!/usr/bin/env python3
+          import json, sys
+          args = sys.argv[1:]
+          if args[:2] != ["-S", "-c"] or len(args) not in (3, 4) or args[2] != ".":
+              sys.stderr.write("test shim supports only: jq -S -c . [file]\n")
+              sys.exit(2)
+          source = open(args[3], encoding="utf-8") if len(args) == 4 else sys.stdin
+          for line in source:
+              if line.strip():
+                  value = json.loads(line)
+                  print(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False))
+          PY
+          chmod +x "$BIN/jq"
+          PATH="$BIN:$PATH" bash linux/test/run.sh
           echo "BUDDY_HELPER_TESTS_SUCCESS"
