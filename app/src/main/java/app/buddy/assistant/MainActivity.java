@@ -87,6 +87,8 @@ public class MainActivity extends Screen implements ChatHub.Listener, Account.Li
     protected void onResume() {
         super.onResume();
         if (isFinishing()) return;
+        // The independent MCP runtime takes over when Accessibility is switched off.
+        RootMcpService.ensure(this);
         hub.addListener(this);
         Waiting.listener = waitingChanged;
         Providers.refresh(this); // fresh model lists before a picker opens (a local server's every time)

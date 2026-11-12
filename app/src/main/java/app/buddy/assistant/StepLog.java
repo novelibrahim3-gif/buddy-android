@@ -98,6 +98,26 @@ final class StepLog {
         });
     }
 
+    /** Root-only runs keep the same textual step history; screenshots are omitted rather than prompting for root again. */
+    static void recordRoot(Context c, String chat, String tool, JSONObject args, String result) {
+        File d = chat == null ? null : current.get(chat);
+        if (d == null) return;
+        int n = counts.merge(chat, 1, Integer::sum);
+        try {
+            String label = ChatHub.describeTool(tool, args, true);
+            String first = result == null ? "" : result.trim();
+            int nl = first.indexOf('\n');
+            if (nl > 0) first = first.substring(0, nl);
+            if (first.length() > 400) first = first.substring(0, 399) + "…";
+            String line = new JSONObject().put("n", n).put("t", System.currentTimeMillis()).put("tool", tool)
+                    .put("label", label == null ? tool : label).put("result", first).toString() + "\n";
+            try (FileOutputStream o = new FileOutputStream(new File(d, "steps.jsonl"), true)) {
+                o.write(line.getBytes(StandardCharsets.UTF_8));
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
     /** A small JPEG of the screen, a moment after the action (the screen needs it to settle). */
     private static void shoot(BuddyService svc, String chat, File out) {
         try {

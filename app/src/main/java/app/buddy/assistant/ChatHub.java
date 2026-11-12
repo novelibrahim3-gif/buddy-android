@@ -887,6 +887,7 @@ final class ChatHub {
     private void runEnded(Sessions.Session ses) {
         Prefs.setBusy(app, ses.id, false);
         StepLog.runEnded(app, ses);
+        RootMcpService.runEnded(ses.id);
         if (ses.background) Background.rest(app, ses.id); // its apps aren't "on screen" between runs
         if (ses.schedule == null) ses.allowed.clear(); // a scheduled chat keeps them for its next scheduled run
         CodexLive.agentDone(ses, ses.outcome, !ses.lastReply.isEmpty());

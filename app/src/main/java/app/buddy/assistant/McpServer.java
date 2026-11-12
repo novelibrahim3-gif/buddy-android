@@ -52,6 +52,11 @@ final class McpServer {
 
         /** The attachment file for an id, or null. */
         java.io.File attachment(String id);
+
+        /** Instructions for this runtime; the default is the full Accessibility-backed Buddy toolset. */
+        default String instructions() {
+            return INSTRUCTIONS;
+        }
     }
 
     private final String token;
@@ -83,8 +88,9 @@ final class McpServer {
 
     private void acceptLoop() {
         while (running) {
+            ServerSocket ss = null;
             try {
-                ServerSocket ss = new ServerSocket();
+                ss = new ServerSocket();
                 ss.setReuseAddress(true);
                 ss.bind(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), PORT));
                 socket = ss;
@@ -98,8 +104,19 @@ final class McpServer {
                 try {
                     Thread.sleep(2000);
                 } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
                     return;
                 }
+            } finally {
+                // stop() can race with bind() before socket is published to the field.
+                // Always close the local socket on loop exit so the other runtime can bind the port.
+                if (ss != null) {
+                    try {
+                        ss.close();
+                    } catch (IOException ignored) {
+                    }
+                }
+                if (socket == ss) socket = null;
             }
         }
     }
@@ -219,6 +236,8 @@ final class McpServer {
         } catch (Exception e) {
             Log.w(TAG, "request failed", e);
         } finally {
+            // Worker threads are reused: never retain one chat's identity for the next request.
+            CALLER_CHAT.remove();
             CALLER_GONE.remove();
             try {
                 s.close();
@@ -265,7 +284,7 @@ final class McpServer {
                             .put("protocolVersion", params.optString("protocolVersion", DEFAULT_PROTOCOL))
                             .put("capabilities", new JSONObject().put("tools", new JSONObject()))
                             .put("serverInfo", new JSONObject().put("name", "buddy-phone").put("version", BuildInfo.VERSION))
-                            .put("instructions", INSTRUCTIONS);
+                            .put("instructions", handler.instructions());
                     return res.put("result", result);
                 }
                 case "ping":

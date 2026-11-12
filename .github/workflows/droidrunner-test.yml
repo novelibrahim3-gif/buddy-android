@@ -1,0 +1,38 @@
+name: DroidRunner Test
+
+on:
+  workflow_dispatch:
+
+jobs:
+  android-runner:
+    runs-on: self-hosted
+
+    steps:
+      - name: Identify DroidRunner
+        run: |
+          echo "=== RUNNER IDENTITY ==="
+          echo "HOSTNAME=$(hostname)"
+          echo "RUNNER_NAME=$RUNNER_NAME"
+          echo "RUNNER_OS=$RUNNER_OS"
+          echo "RUNNER_ARCH=$RUNNER_ARCH"
+          uname -a
+          uname -m
+
+          echo "=== ANDROID ==="
+          command -v getprop >/dev/null 2>&1 && getprop ro.product.model || true
+          command -v getprop >/dev/null 2>&1 && getprop ro.build.version.sdk || true
+
+          echo "=== JAVA ==="
+          java -version 2>&1 || true
+
+          echo "=== ANDROID SDK ==="
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          echo "=== STORAGE ==="
+          df -h
+
+          echo "=== MEMORY ==="
+          free -h || true
+
+          echo "DROIDRUNNER_TEST_SUCCESS"

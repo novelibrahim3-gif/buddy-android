@@ -716,6 +716,7 @@ final class Tools {
     static void runStarted(String chat) {
         steps.remove(chat);
         lastStep.remove(chat);
+        RootMcpService.runStarted(chat);
     }
 
     /**
@@ -1679,19 +1680,49 @@ final class Tools {
                 result += " The field now reads “" + ChatHub.clip(got, 200) + "”: check it with read_screen.";
             }
         } else {
-            Bundle args = new Bundle();
-            args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
-            boolean ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
-            if (!ok) throw new IllegalStateException("This field did not accept text.");
-            result = "Typed " + text.length() + " characters.";
-            if (!target.isPassword()) { // some fields take the text and then change or drop it
-                Thread.sleep(150);
-                target.refresh();
-                CharSequence now = target.isShowingHintText() ? "" : target.getText();
-                String got = now == null ? "" : now.toString();
-                if (!got.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
-                    result += " The field now reads “" + ChatHub.clip(got, 200) + "”: check it with read_screen.";
+            // The target and password checks above still come from Accessibility, but actual key input
+            // can use KernelSU. If selection or shell input is unsupported, retain the established
+            // ACTION_SET_TEXT path rather than risking text in the wrong place.
+            boolean typedWithRoot = false;
+            if (!target.isPassword() && target.isFocused()) {
+                try {
+                    int end = cur == null ? 0 : cur.length();
+                    Bundle selection = new Bundle();
+                    selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, a.optBoolean("append") ? end : 0);
+                    selection.putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end);
+                    if (target.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, selection) || end == 0) {
+                        RootControl.typeText(text);
+                        typedWithRoot = true;
+                    }
+                } catch (java.io.IOException | IllegalArgumentException rootUnavailable) {
+                    android.util.Log.i("BuddyRoot", "Root text input unavailable; using Accessibility set-text", rootUnavailable);
                 }
+            }
+            Thread.sleep(150);
+            target.refresh();
+            CharSequence now = target.isShowingHintText() ? "" : target.getText();
+            String got = now == null ? "" : now.toString();
+            if (!typedWithRoot || !got.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
+                Bundle args = new Bundle();
+                args.putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value);
+                boolean ok = target.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args);
+                if (!ok && !typedWithRoot) throw new IllegalStateException("This field did not accept text.");
+                if (!ok) {
+                    result = "Sent text through KernelSU, but the field could not be verified. Check it with read_screen.";
+                } else {
+                    result = "Typed " + text.length() + " characters.";
+                }
+                if (!target.isPassword()) {
+                    Thread.sleep(150);
+                    target.refresh();
+                    CharSequence corrected = target.isShowingHintText() ? "" : target.getText();
+                    String actual = corrected == null ? "" : corrected.toString();
+                    if (!actual.replaceAll("\\s+", " ").trim().equals(value.replaceAll("\\s+", " ").trim())) {
+                        result += " The field now reads “" + ChatHub.clip(actual, 200) + "”: check it with read_screen.";
+                    }
+                }
+            } else {
+                result = "Typed " + text.length() + " characters using KernelSU.";
             }
         }
         if (a.optBoolean("submit")) {
@@ -1705,7 +1736,14 @@ final class Tools {
                     : "smart".equals(mode) ? review("Press Enter to send", card, target, text) : null;
             if (blocked != null) return result + " Not sent: " + blocked;
             Thread.sleep(150);
-            boolean sent = target.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+            boolean sent = false;
+            try {
+                RootControl.press("ENTER");
+                sent = true;
+            } catch (java.io.IOException rootUnavailable) {
+                android.util.Log.i("BuddyRoot", "Root Enter unavailable; using the focused field action", rootUnavailable);
+                sent = target.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_IME_ENTER.getId());
+            }
             result += sent ? " Pressed enter." : " Enter action not supported here; tap the send button instead.";
         }
         return result;
@@ -1854,6 +1892,30 @@ final class Tools {
                     .addStroke(new GestureDescription.StrokeDescription(path, 0, durationMs)).build();
             if (svc.paused()) return false; // the user took the phone since this call began
             svc.autoPauser().ownGesture(durationMs); // Buddy's own touch: not the user taking the phone
+            // Prefer the allow-listed KernelSU input bridge when root has been granted. The same
+            // guard/approval checks have already run before gesture() is reached; if root is absent,
+            // keep the established Accessibility gesture path as a compatibility fallback.
+            try {
+                if (path.points.size() == 1) {
+                    float[] point = path.points.get(0);
+                    int x = Math.round(point[0]), y = Math.round(point[1]);
+                    if (durationMs >= 250) RootControl.longPress(svc, x, y, (int) durationMs);
+                    else RootControl.tap(svc, x, y);
+                } else if (path.points.size() == 2) {
+                    float[] from = path.points.get(0);
+                    float[] to = path.points.get(1);
+                    RootControl.swipe(svc, Math.round(from[0]), Math.round(from[1]),
+                            Math.round(to[0]), Math.round(to[1]), (int) durationMs);
+                } else {
+                    // Preserve curved/multi-segment gestures through Accessibility; a single
+                    // straight KernelSU swipe would silently change the requested path.
+                    throw new java.io.IOException("Gesture needs multiple segments; use the original Accessibility path.");
+                }
+                Thread.sleep(250);
+                return true;
+            } catch (java.io.IOException rootUnavailable) {
+                android.util.Log.i("BuddyRoot", "Root input unavailable; using Accessibility gesture", rootUnavailable);
+            }
             boolean dispatched = svc.dispatchGesture(g, new AccessibilityService.GestureResultCallback() {
                 @Override
                 public void onCompleted(GestureDescription d) {
@@ -1896,6 +1958,19 @@ final class Tools {
             case "notifications": action = AccessibilityService.GLOBAL_ACTION_NOTIFICATIONS; break;
             case "quick_settings": action = AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS; break;
             default: throw new IllegalArgumentException("Unknown button " + button);
+        }
+        // Prefer fixed, allow-listed KernelSU navigation commands when root is granted.
+        // These actions do not target app content; the regular Accessibility path remains a fallback.
+        try {
+            RootControl.pressSystemButton(button);
+            try {
+                Thread.sleep(500);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            return "Pressed " + button + " using KernelSU.";
+        } catch (java.io.IOException rootUnavailable) {
+            android.util.Log.i("BuddyRoot", "Root navigation unavailable; using Accessibility global action", rootUnavailable);
         }
         String before = "back".equals(button) ? beforeAction() : null;
         boolean ok = svc.performGlobalAction(action);
@@ -2123,6 +2198,16 @@ final class Tools {
             Bitmap full = jpg == null ? null : android.graphics.BitmapFactory.decodeByteArray(jpg, 0, jpg.length);
             if (full == null) return text("The background screen shows nothing yet. Open an app with open_app first.");
             return picture(full);
+        }
+        // Root screencap does not call AccessibilityService.takeScreenshot and is the preferred
+        // real-display capture path on KernelSU devices. Keep the old API as a compatibility fallback.
+        try {
+            byte[] png = RootControl.screenshot(svc);
+            Bitmap full = android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length);
+            if (full != null) return picture(full);
+            android.util.Log.w("BuddyRoot", "KernelSU screencap returned bytes Android could not decode.");
+        } catch (java.io.IOException rootUnavailable) {
+            android.util.Log.i("BuddyRoot", "Root screenshot unavailable; using Accessibility screenshot", rootUnavailable);
         }
         try {
             return screenshotOnce();

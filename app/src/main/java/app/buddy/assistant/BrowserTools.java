@@ -1,5 +1,6 @@
 package app.buddy.assistant;
 
+import android.content.Context;
 import android.os.SystemClock;
 
 import org.json.JSONArray;
@@ -28,19 +29,35 @@ final class BrowserTools {
     private static final Pattern RISKY_DIALOG = Pattern.compile("(?iu)\\b(delete|remove|pay|purchase|buy|order|send|post|publish|"
             + "unsubscribe|cancel|transfer|erase|supprimer|payer|envoyer|löschen|bezahlen|senden|eliminar|pagar|enviar)\\b");
 
+    private final Context context;
     private final BuddyService svc;
+    private final RootMcpService root;
     /** When the agent was told a page warns that leaving loses what's typed, by chat: going again within 5 min leaves. */
     private final Map<String, Long> leaveWarned = new ConcurrentHashMap<>();
 
     BrowserTools(BuddyService svc) {
+        this.context = svc.getApplicationContext();
         this.svc = svc;
+        this.root = null;
+    }
+
+    BrowserTools(RootMcpService root) {
+        this.context = root.getApplicationContext();
+        this.svc = null;
+        this.root = root;
+    }
+
+    private String askConfirm(String summary) throws InterruptedException {
+        if (svc != null) return svc.askConfirm(summary, false);
+        String answer = RootApproval.request(context, summary);
+        return "APPROVED".equals(answer) ? answer : "BLOCKED: " + answer;
     }
 
     // ---------------------------------------------------------------- schema
 
     static void list(JSONArray t) throws JSONException {
         t.put(tool("browser_open",
-                "Open a web page in Buddy's background browser (a separate browser the user can watch in this chat; "
+                "Open a web page in Buddy's background browser (a separate browser the user can watch in Buddy; "
                         + "it doesn't use the phone's screen). Returns the page as text, like browser_read.",
                 new JSONObject().put("url", str("The address, e.g. https://example.com"))
                         .put("new_tab", bool("Open it in a new tab, keeping the current one")), "url"));
@@ -108,12 +125,12 @@ final class BrowserTools {
             // a rule's run works for someone else's message: a page could carry the user's data away
             return text("The background browser isn't available in a notification rule's run.");
         }
-        if (!Browser.available(svc)) {
+        if (!Browser.available(context)) {
             return text("The background browser is off. Use the phone instead, or ask the user to turn on Background "
                     + "browser in Buddy's Settings.");
         }
         // the user took over (the live view, or the phone): wait like the phone tools do
-        String held = svc.awaitResume(name, false);
+        String held = svc == null ? null : svc.awaitResume(name, false);
         if (held != null) return text(held);
         String key = Browser.key(chat);
         if (Browser.takeTouched(key) && !"browser_read".equals(name) && !"browser_screenshot".equals(name)
@@ -121,18 +138,18 @@ final class BrowserTools {
             return text("PAGE CHANGED: the user used the browser in the live view, so the page may have changed and item "
                     + "numbers are stale. Nothing was done. Call browser_read, then continue.");
         }
-        String why = Browser.ensure(svc, 150_000);
+        String why = Browser.ensure(context, 150_000);
         if (why != null) return text(why);
         Browser.used();
         Browser.agentUsed(key);
         String dialog = pendingDialog(key, false);
         if (dialog != null && !"browser_read".equals(name)) return text(dialog);
         switch (name) { // the bubble says what's going on (a tap says its button once it's known)
-            case "browser_open": step(key, svc.getString(R.string.activity_browser_opening), a.optString("url")); break;
+            case "browser_open": step(key, context.getString(R.string.activity_browser_opening), a.optString("url")); break;
             case "browser_read":
-            case "browser_screenshot": step(key, svc.getString(R.string.activity_browser_reading)); break;
-            case "browser_type": step(key, svc.getString(R.string.activity_typing)); break;
-            case "browser_scroll": step(key, svc.getString(R.string.activity_scrolling)); break;
+            case "browser_screenshot": step(key, context.getString(R.string.activity_browser_reading)); break;
+            case "browser_type": step(key, context.getString(R.string.activity_typing)); break;
+            case "browser_scroll": step(key, context.getString(R.string.activity_scrolling)); break;
             default: break;
         }
         switch (name) {
@@ -184,7 +201,7 @@ final class BrowserTools {
         sb.append("Page: ").append(title instanceof String && !((String) title).isEmpty() ? title : page == null ? "" : page[1]).append("\nURL: ").append(page == null ? "" : page[0]).append('\n');
         String sig = signals(key);
         if (sig != null) sb.append('\n').append(sig).append('\n');
-        String tips = Tips.once(svc, McpServer.CALLER_CHAT.get(), host(key));
+        String tips = Tips.once(context, McpServer.CALLER_CHAT.get(), host(key));
         if (!tips.isEmpty()) sb.append(tips);
         if (from >= all.length() && from > 0) return sb.append("\n(The page has no more text after character ").append(from).append(".)").toString();
         int end = Math.min(all.length(), from + PAGE_CHARS);
@@ -202,6 +219,11 @@ final class BrowserTools {
         return sb.toString();
     }
 
+    private String guidedBrowserInstruction() {
+        return root == null ? "Buddy opens the browser for them with those marked"
+                : "the user taps the Buddy asks notification to open the marked browser view";
+    }
+
     /** What the page asks of the agent: a sign-in or a bot check (both are the user's to do), or null. */
     private String signals(String key) {
         try {
@@ -209,8 +231,8 @@ final class BrowserTools {
             String site = host(key);
             if (s.optBoolean("bot")) {
                 return "BOT CHECK: " + site + " shows a captcha or a robot check. Don't try to solve it. Ask the user (ask) to "
-                        + "solve it, with browser_highlight on the captcha's item (Buddy opens the browser for them with it "
-                        + "marked) and options like [\"Done\", \"Use the phone instead\"], or switch to the phone (open_url).";
+                        + "solve it, with browser_highlight on the captcha's item (" + guidedBrowserInstruction()
+                        + ") and options like [\"Done\", \"Use the phone instead\"], or switch to the phone (open_url).";
             }
             if (s.optBoolean("blocked")) {
                 return "BLOCKED BY THE SITE: " + site + " refuses this browser. Use the phone instead (open_url).";
@@ -219,7 +241,7 @@ final class BrowserTools {
                 return "SIGN-IN: this page asks to sign in. Never type passwords or codes. Ask the user (ask) to sign in "
                         + "themselves, e.g. \"Please sign in to " + site + ", then tap Done\" with options [\"Done\", \"Use "
                         + "the phone instead\"] and browser_highlight on the fields and the sign-in button (call browser_read "
-                        + "for their numbers): Buddy opens the browser for them with those marked. Signing in "
+                        + "for their numbers): " + guidedBrowserInstruction() + ". Signing in "
                         + "with Google often fails in this browser: email and password works better. Or do this on the "
                         + "phone (open_url), where the user may be signed in already.";
             }
@@ -229,7 +251,7 @@ final class BrowserTools {
     }
 
     private String click(String key, int ref) throws Exception {
-        if (svc.bubble() != null && svc.bubble().confirming()) {
+        if (svc != null && svc.bubble() != null && svc.bubble().confirming()) {
             return "BLOCKED: a card is waiting for the user's answer. Wait for it; don't tap anything.";
         }
         Object o = Browser.eval(key, "__buddy.target(" + ref + ")");
@@ -244,16 +266,16 @@ final class BrowserTools {
         String host = host(key);
         boolean approved = false;
         String risky = riskyTap(t, before == null ? "" : before[0]);
-        boolean allow = Guard.listed(svc, "allow", label, null); // the user said: never ask for this one
-        if (!allow && (Guard.listed(svc, "ask", label, null) || (Prefs.guardBuiltin(svc) && risky != null))) {
+        boolean allow = Guard.listed(context, "allow", label, null); // the user said: never ask for this one
+        if (!allow && (Guard.listed(context, "ask", label, null) || (Prefs.guardBuiltin(context) && risky != null))) {
             String name = label.isEmpty() ? risky : label;
-            String blocked = approve("Tap “" + name + "”", svc.getString(R.string.browser_card_tap, name, host),
+            String blocked = approve("Tap “" + name + "”", context.getString(R.string.browser_card_tap, name, host),
                     t.optString("draft", ""), Guard.sendsText(name));
             if (blocked != null) return blocked;
             approved = true;
         }
-        step(key, label.isEmpty() ? svc.getString(R.string.activity_tapping_plain)
-                : svc.getString(R.string.activity_tapping, label));
+        step(key, label.isEmpty() ? context.getString(R.string.activity_tapping_plain)
+                : context.getString(R.string.activity_tapping, label));
         Browser.eval(key, "__buddy.armClick(" + ref + ")");
         Browser.click(key, t.getDouble("x"), t.getDouble("y"));
         Thread.sleep(500);
@@ -337,8 +359,8 @@ final class BrowserTools {
         // Enter in a search box only searches; in a message box or a form sent by a risky button it sends
         String sendLabel = f.optString("submitLabel", "");
         boolean risky = !f.optBoolean("search") && (f.optBoolean("multiline") || Guard.riskyText(sendLabel) != null);
-        if (risky && Prefs.guardBuiltin(svc)) {
-            String blocked = approve("Press Enter to send", svc.getString(R.string.browser_card_enter, host(key)), text, true);
+        if (risky && Prefs.guardBuiltin(context)) {
+            String blocked = approve("Press Enter to send", context.getString(R.string.browser_card_enter, host(key)), text, true);
             if (blocked != null) return result + " Not sent: " + blocked;
         }
         String[] before = Browser.page(key);
@@ -435,7 +457,9 @@ final class BrowserTools {
             String h = android.net.Uri.parse(url.contains("://") ? url : "https://" + url).getHost();
             if (h != null) site = h.startsWith("www.") ? h.substring(4) : h;
         }
-        svc.showActivity("?".equals(site) ? what : svc.getString(R.string.activity_browsing, site, what), key);
+        String status = "?".equals(site) ? what : context.getString(R.string.activity_browsing, site, what);
+        if (svc != null) svc.showActivity(status, key);
+        else if (root != null) root.showRuntimeStatus(status);
     }
 
     private static String stale(int ref) {
@@ -461,8 +485,8 @@ final class BrowserTools {
     private String approve(String what, String card, String draft, boolean send) throws InterruptedException {
         if (Guard.takeApproval(send)) return null;
         String summary = draft == null || draft.trim().isEmpty() ? card
-                : svc.getString(R.string.tools_card_detail, card, svc.getString(R.string.tools_card_quote, ChatHub.clip(draft.trim(), 300)));
-        String answer = svc.askConfirm(summary, false);
+                : context.getString(R.string.tools_card_detail, card, context.getString(R.string.tools_card_quote, ChatHub.clip(draft.trim(), 300)));
+        String answer = askConfirm(summary);
         if (answer.startsWith("APPROVED")) return null;
         if (answer.startsWith("CHANGES")) return "Not done: the user wants changes first. " + answer;
         return "BLOCKED by Buddy's safety rule: the user did not approve “" + what + "”. Don't retry it; ask the user what they want.";
@@ -502,7 +526,7 @@ final class BrowserTools {
         }
         boolean ok = approved || !RISKY_DIALOG.matcher(msg).find();
         if (!ok) {
-            String answer = svc.askConfirm(svc.getString(R.string.browser_card_dialog, host(key), msg), false);
+            String answer = askConfirm(context.getString(R.string.browser_card_dialog, host(key), msg));
             ok = answer.startsWith("APPROVED");
         }
         Browser.answerDialog(key, ok);

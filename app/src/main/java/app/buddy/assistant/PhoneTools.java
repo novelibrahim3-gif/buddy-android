@@ -46,10 +46,59 @@ final class PhoneTools {
     private static final java.util.Set<String> NOT_IN_RULES = new java.util.HashSet<>(java.util.Arrays.asList(
             "clipboard_read", "share", "save_to_downloads", "take_photo", "location", "notifications", "calendar_events"));
 
+    private final Context context;
     private final BuddyService svc;
+    private final RootMcpService root;
 
     PhoneTools(BuddyService svc) {
+        this.context = svc.getApplicationContext();
         this.svc = svc;
+        this.root = null;
+    }
+
+    PhoneTools(RootMcpService root) {
+        this.context = root.getApplicationContext();
+        this.svc = null;
+        this.root = root;
+    }
+
+    private String askConfirm(String summary) throws InterruptedException {
+        if (svc != null) return svc.askConfirm(summary, false);
+        String answer = RootApproval.request(context, summary);
+        return "APPROVED".equals(answer) ? answer : "BLOCKED: " + answer;
+    }
+
+    private void runOnMain(Runnable action) {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) action.run();
+        else new android.os.Handler(android.os.Looper.getMainLooper()).post(action);
+    }
+
+    private boolean startActivity(Intent intent) throws InterruptedException {
+        if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) {
+            try {
+                context.startActivity(intent);
+                return true;
+            } catch (Exception e) {
+                return false;
+            }
+        }
+        AtomicReference<Boolean> started = new AtomicReference<>(false);
+        java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        runOnMain(() -> {
+            try {
+                context.startActivity(intent);
+                started.set(true);
+            } catch (Exception ignored) {
+            } finally {
+                done.countDown();
+            }
+        });
+        return done.await(5, TimeUnit.SECONDS) && started.get();
+    }
+
+    private void showStatus(String status) {
+        if (svc != null) svc.showStatus(status);
+        else if (root != null) root.showRuntimeStatus(status);
     }
 
     /** The tools' descriptions, for the agent. */
@@ -138,10 +187,10 @@ final class PhoneTools {
     // ------------------------------------------------------------- clipboard
 
     private String clipboardRead() throws Exception {
-        String answer = svc.askConfirm(svc.getString(R.string.tools_card_clipboard), false);
+        String answer = askConfirm(context.getString(R.string.tools_card_clipboard));
         if (!answer.startsWith("APPROVED")) return "Not read. " + answer;
         // Android lets only the app in front read the clipboard: a see-through screen of Buddy's reads it and closes
-        Object r = PhoneToolActivity.run(svc, PhoneToolActivity.CLIPBOARD, null, 10);
+        Object r = PhoneToolActivity.run(context, PhoneToolActivity.CLIPBOARD, null, 10);
         if (r == null) return "Couldn't read the clipboard (Buddy couldn't come to the front). Ask the user to paste it.";
         String s = r.toString();
         return s.isEmpty() ? "The clipboard is empty, or holds no text." : "Clipboard:\n" + s;
@@ -150,16 +199,16 @@ final class PhoneTools {
     private String clipboardWrite(String text) throws Exception {
         AtomicReference<String> err = new AtomicReference<>();
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
-        svc.runOnMain(() -> {
+        runOnMain(() -> {
             try {
-                ClipboardManager cm = (ClipboardManager) svc.getSystemService(Context.CLIPBOARD_SERVICE);
+                ClipboardManager cm = (ClipboardManager) context.getSystemService(Context.CLIPBOARD_SERVICE);
                 cm.setPrimaryClip(ClipData.newPlainText("Buddy", text));
             } catch (Exception e) {
                 err.set(String.valueOf(e.getMessage()));
             }
             done.countDown();
         });
-        done.await(5, TimeUnit.SECONDS);
+        if (!done.await(5, TimeUnit.SECONDS)) return "Couldn't copy: Android's main thread did not respond in time.";
         return err.get() == null ? "Copied: the user can paste it now." : "Couldn't copy: " + err.get();
     }
 
@@ -175,7 +224,7 @@ final class PhoneTools {
         if (!a.optString("label").isEmpty()) i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label"));
         java.util.ArrayList<Integer> days = days(a.optString("days"));
         if (!days.isEmpty()) i.putExtra(AlarmClock.EXTRA_DAYS, days);
-        if (!start(i)) return "The phone's Clock app doesn't take alarms from other apps. Open it with open_app instead.";
+        if (!start(i)) return "Android couldn't open the Clock app to set this alarm. Open Clock manually or try again with Buddy in the foreground.";
         return String.format(Locale.ROOT, "Alarm set for %02d:%02d%s in the Clock app.", h, min,
                 days.isEmpty() ? "" : " (repeating)");
     }
@@ -197,15 +246,14 @@ final class PhoneTools {
         Intent i = new Intent(AlarmClock.ACTION_SET_TIMER).putExtra(AlarmClock.EXTRA_LENGTH, s)
                 .putExtra(AlarmClock.EXTRA_SKIP_UI, true);
         if (!a.optString("label").isEmpty()) i.putExtra(AlarmClock.EXTRA_MESSAGE, a.optString("label"));
-        if (!start(i)) return "The phone's Clock app doesn't take timers from other apps. Open it with open_app instead.";
+        if (!start(i)) return "Android couldn't open the Clock app to start this timer. Open Clock manually or try again with Buddy in the foreground.";
         return "Timer started: " + (s >= 60 ? s / 60 + " min " : "") + (s % 60 > 0 || s < 60 ? s % 60 + " s" : "").trim() + ".";
     }
 
-    private boolean start(Intent i) {
+    private boolean start(Intent i) throws InterruptedException {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (i.resolveActivity(svc.getPackageManager()) == null) return false;
-        svc.runOnMain(() -> svc.startActivity(i));
-        return true;
+        if (i.resolveActivity(context.getPackageManager()) == null) return false;
+        return startActivity(i);
     }
 
     // ------------------------------------------------------------- files
@@ -213,7 +261,7 @@ final class PhoneTools {
     /** A file the agent may hand out: in the Linux tools' work folder or this chat's files, nowhere else. */
     private File agentFile(String path) throws Exception {
         if (path == null || !path.startsWith("/")) throw new IllegalArgumentException("Give the file's full path.");
-        File root = Linux.root(svc).getCanonicalFile();
+        File root = Linux.root(context).getCanonicalFile();
         File f = new File(root, path.substring(1)).getCanonicalFile();
         String chat = McpServer.CALLER_CHAT.get();
         File work = new File(root, "root/.buddy/work").getCanonicalFile();
@@ -231,10 +279,10 @@ final class PhoneTools {
         Intent send = new Intent(Intent.ACTION_SEND);
         if (!path.isEmpty()) {
             File f = agentFile(path);
-            File out = FilesProvider.shareFile(svc, f.getName());
+            File out = FilesProvider.shareFile(context, f.getName());
             copy(new FileInputStream(f), new java.io.FileOutputStream(out));
             Uri u = FilesProvider.shareUri(f.getName());
-            send.setType(svc.getContentResolver().getType(u)).putExtra(Intent.EXTRA_STREAM, u)
+            send.setType(context.getContentResolver().getType(u)).putExtra(Intent.EXTRA_STREAM, u)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             send.setClipData(ClipData.newRawUri(f.getName(), u));
         } else {
@@ -243,7 +291,7 @@ final class PhoneTools {
         if (!text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
         Intent chooser = Intent.createChooser(send, a.optString("title", null));
         chooser.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        svc.runOnMain(() -> svc.startActivity(chooser));
+        if (!startActivity(chooser)) return "Android couldn't open the share sheet. Open Buddy in the foreground and try again.";
         return "The share sheet is open: the user picks the app. Nothing has been sent; if they asked you to send it "
                 + "somewhere, the approval rules still apply in that app.";
     }
@@ -256,14 +304,14 @@ final class PhoneTools {
         v.put(MediaStore.MediaColumns.DISPLAY_NAME, name);
         v.put(MediaStore.MediaColumns.RELATIVE_PATH, "Download/Buddy");
         v.put(MediaStore.MediaColumns.IS_PENDING, 1);
-        Uri u = svc.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
+        Uri u = context.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
         if (u == null) return "Couldn't save to Downloads.";
-        try (OutputStream o = svc.getContentResolver().openOutputStream(u)) {
+        try (OutputStream o = context.getContentResolver().openOutputStream(u)) {
             copy(new FileInputStream(f), o);
         }
         v.clear();
         v.put(MediaStore.MediaColumns.IS_PENDING, 0);
-        svc.getContentResolver().update(u, v, null, null);
+        context.getContentResolver().update(u, v, null, null);
         return "Saved to Downloads/Buddy/" + name + ".";
     }
 
@@ -279,17 +327,17 @@ final class PhoneTools {
 
     private String deviceStatus() {
         StringBuilder b = new StringBuilder();
-        Intent bat = svc.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        Intent bat = context.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
         if (bat != null) {
             int level = bat.getIntExtra(BatteryManager.EXTRA_LEVEL, -1), scale = bat.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
             int plugged = bat.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
             b.append("Battery: ").append(level * 100 / Math.max(1, scale)).append('%')
                     .append(plugged != 0 ? ", charging" : ", not charging");
-            PowerManager pm = (PowerManager) svc.getSystemService(Context.POWER_SERVICE);
+            PowerManager pm = (PowerManager) context.getSystemService(Context.POWER_SERVICE);
             if (pm != null && pm.isPowerSaveMode()) b.append(", battery saver on");
             b.append('\n');
         }
-        ConnectivityManager cm = (ConnectivityManager) svc.getSystemService(Context.CONNECTIVITY_SERVICE);
+        ConnectivityManager cm = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
         NetworkCapabilities nc = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
         String net = nc == null ? "offline" : nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) ? "Wi-Fi"
                 : nc.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) ? "mobile data"
@@ -300,7 +348,7 @@ final class PhoneTools {
                 .append(" (").append(java.util.TimeZone.getDefault().getID()).append(")\n");
         StatFs fs = new StatFs(android.os.Environment.getDataDirectory().getPath());
         b.append(String.format(Locale.ROOT, "Storage: %.1f GB free of %.1f GB\n", fs.getAvailableBytes() / 1e9, fs.getTotalBytes() / 1e9));
-        AudioManager am = (AudioManager) svc.getSystemService(Context.AUDIO_SERVICE);
+        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if (am != null) {
             int mode = am.getRingerMode();
             b.append("Ringer: ").append(mode == AudioManager.RINGER_MODE_SILENT ? "silent"
@@ -312,15 +360,15 @@ final class PhoneTools {
     // ------------------------------------------------------------- camera
 
     private JSONObject takePhoto(String why) throws Exception {
-        if (!why.isEmpty()) svc.showStatus(svc.getString(R.string.tools_photo_why, why));
-        Object r = PhoneToolActivity.run(svc, PhoneToolActivity.PHOTO, null, 180);
-        File shot = FilesProvider.captureFile(svc);
+        if (!why.isEmpty()) showStatus(context.getString(R.string.tools_photo_why, why));
+        Object r = PhoneToolActivity.run(context, PhoneToolActivity.PHOTO, null, 180);
+        File shot = FilesProvider.captureFile(context);
         if (!Boolean.TRUE.equals(r) || shot.length() == 0) return text("No photo: the user closed the camera, or it timed out.");
         // a copy in this chat's files, which the agent can open later
         String chat = McpServer.CALLER_CHAT.get();
         String saved = null;
         if (chat != null && chat.matches("[A-Za-z0-9_-]+")) {
-            File dir = new File(Linux.root(svc), "root/.buddy/sessions/" + chat + "/files");
+            File dir = new File(Linux.root(context), "root/.buddy/sessions/" + chat + "/files");
             if (dir.isDirectory() || dir.mkdirs()) {
                 String name = "photo-" + new SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT).format(new Date()) + ".jpg";
                 copy(new FileInputStream(shot), new java.io.FileOutputStream(new File(dir, name)));
@@ -356,12 +404,12 @@ final class PhoneTools {
             return "Buddy has no notification access. The user can turn it on in Settings → Experience → Notification rules.";
         }
         StringBuilder b = new StringBuilder();
-        java.text.DateFormat time = android.text.format.DateFormat.getTimeFormat(svc);
+        java.text.DateFormat time = android.text.format.DateFormat.getTimeFormat(context);
         String q = app.toLowerCase(Locale.ROOT);
         int n = 0;
         for (android.service.notification.StatusBarNotification s : all) {
             android.app.Notification no = s.getNotification();
-            if (s.getPackageName().equals(svc.getPackageName())
+            if (s.getPackageName().equals(context.getPackageName())
                     || (no.flags & (android.app.Notification.FLAG_ONGOING_EVENT | android.app.Notification.FLAG_FOREGROUND_SERVICE
                     | android.app.Notification.FLAG_GROUP_SUMMARY)) != 0) continue;
             Triggers.Note note = Triggers.Note.of(w, s);
@@ -391,7 +439,7 @@ final class PhoneTools {
     // ------------------------------------------------------------- media
 
     private String media(String action, int volume) throws Exception {
-        AudioManager am = (AudioManager) svc.getSystemService(Context.AUDIO_SERVICE);
+        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if ("volume".equals(action)) {
             if (volume < 0 || volume > 100) return "Give volume as 0 to 100.";
             int max = am.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
@@ -417,11 +465,11 @@ final class PhoneTools {
 
     /** "Playing: Song · Artist (Spotify)", from the apps' media sessions (needs notification access), or null. */
     private String nowPlaying() {
-        if (!NotificationWatcher.enabled(svc)) return null;
+        if (!NotificationWatcher.enabled(context)) return null;
         try {
-            android.media.session.MediaSessionManager msm = svc.getSystemService(android.media.session.MediaSessionManager.class);
+            android.media.session.MediaSessionManager msm = context.getSystemService(android.media.session.MediaSessionManager.class);
             for (android.media.session.MediaController mc : msm.getActiveSessions(
-                    new android.content.ComponentName(svc, NotificationWatcher.class))) {
+                    new android.content.ComponentName(context, NotificationWatcher.class))) {
                 android.media.session.PlaybackState ps = mc.getPlaybackState();
                 android.media.MediaMetadata md = mc.getMetadata();
                 if (md == null) continue;
@@ -430,7 +478,7 @@ final class PhoneTools {
                 String artist = md.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST);
                 String appName = mc.getPackageName();
                 try {
-                    appName = svc.getPackageManager().getApplicationLabel(svc.getPackageManager()
+                    appName = context.getPackageManager().getApplicationLabel(context.getPackageManager()
                             .getApplicationInfo(mc.getPackageName(), 0)).toString();
                 } catch (Exception ignored) {
                 }
@@ -445,8 +493,8 @@ final class PhoneTools {
     // ------------------------------------------------------------- calendar
 
     private String calendarEvents(String from, int days) throws Exception {
-        if (svc.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            Object r = PhoneToolActivity.run(svc, PhoneToolActivity.CALENDAR_PERMISSION, null, 120);
+        if (context.checkSelfPermission(android.Manifest.permission.READ_CALENDAR) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Object r = PhoneToolActivity.run(context, PhoneToolActivity.CALENDAR_PERMISSION, null, 120);
             if (!Boolean.TRUE.equals(r)) return "The user didn't allow Buddy to read the calendar.";
         }
         java.util.Calendar start = java.util.Calendar.getInstance();
@@ -472,7 +520,7 @@ final class PhoneTools {
         SimpleDateFormat dayUtc = new SimpleDateFormat("EEE yyyy-MM-dd", Locale.ENGLISH);
         dayUtc.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
         int count = 0;
-        try (android.database.Cursor cur = svc.getContentResolver().query(ub.build(), cols, null, null,
+        try (android.database.Cursor cur = context.getContentResolver().query(ub.build(), cols, null, null,
                 android.provider.CalendarContract.Instances.BEGIN + " ASC")) {
             while (cur != null && cur.moveToNext() && count < 100) {
                 count++;
@@ -502,7 +550,7 @@ final class PhoneTools {
                 .putExtra(android.provider.CalendarContract.EXTRA_EVENT_ALL_DAY, allDay);
         if (!a.optString("location").isEmpty()) i.putExtra(android.provider.CalendarContract.Events.EVENT_LOCATION, a.optString("location"));
         if (!a.optString("notes").isEmpty()) i.putExtra(android.provider.CalendarContract.Events.DESCRIPTION, a.optString("notes"));
-        if (!start(i)) return "There's no calendar app on the phone that takes new events.";
+        if (!start(i)) return "Android couldn't open a Calendar app to create this event. Open Calendar manually or try again with Buddy in the foreground.";
         return "The Calendar app is open with the event filled in: the user checks it and taps Save. Call read_screen to "
                 + "see it; don't tap Save for them unless they asked you to add it.";
     }
@@ -525,14 +573,14 @@ final class PhoneTools {
     // ------------------------------------------------------------- location
 
     private String location() throws Exception {
-        String answer = svc.askConfirm(svc.getString(R.string.tools_card_location), false);
+        String answer = askConfirm(context.getString(R.string.tools_card_location));
         if (!answer.startsWith("APPROVED")) return "Not shared. " + answer;
-        if (svc.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                && svc.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-            Object r = PhoneToolActivity.run(svc, PhoneToolActivity.LOCATION_PERMISSION, null, 120);
+        if (context.checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                && context.checkSelfPermission(android.Manifest.permission.ACCESS_COARSE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            Object r = PhoneToolActivity.run(context, PhoneToolActivity.LOCATION_PERMISSION, null, 120);
             if (!Boolean.TRUE.equals(r)) return "The user didn't allow Buddy to use the location.";
         }
-        LocationManager lm = (LocationManager) svc.getSystemService(Context.LOCATION_SERVICE);
+        LocationManager lm = (LocationManager) context.getSystemService(Context.LOCATION_SERVICE);
         if (lm == null || !lm.isLocationEnabled()) return "Location is turned off on the phone. Ask the user to turn it on.";
         String provider = lm.hasProvider(LocationManager.FUSED_PROVIDER) ? LocationManager.FUSED_PROVIDER
                 : lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ? LocationManager.NETWORK_PROVIDER : LocationManager.GPS_PROVIDER;
@@ -540,7 +588,7 @@ final class PhoneTools {
         java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
         android.os.CancellationSignal cancel = new android.os.CancellationSignal();
         try {
-            lm.getCurrentLocation(provider, cancel, svc.getMainExecutor(), l -> {
+            lm.getCurrentLocation(provider, cancel, context.getMainExecutor(), l -> {
                 got.set(l);
                 done.countDown();
             });
@@ -564,7 +612,7 @@ final class PhoneTools {
         if (age >= 2) b.append(", ").append(age).append(" min old");
         try {
             @SuppressWarnings("deprecation")
-            java.util.List<android.location.Address> ad = new android.location.Geocoder(svc, Locale.getDefault())
+            java.util.List<android.location.Address> ad = new android.location.Geocoder(context, Locale.getDefault())
                     .getFromLocation(l.getLatitude(), l.getLongitude(), 1);
             if (ad != null && !ad.isEmpty() && ad.get(0).getAddressLine(0) != null) {
                 b.append("\nAddress: ").append(ad.get(0).getAddressLine(0));
