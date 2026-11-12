@@ -191,7 +191,13 @@ final class RootControl {
             StringBuilder captured = new StringBuilder();
             long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(COMMAND_TIMEOUT_SECONDS);
             while (true) {
-                OutputLine line = pollLine(rootOutput, deadline, "Root command timed out.");
+                OutputLine line;
+                try {
+                    line = pollLine(rootOutput, deadline, "Root command timed out.");
+                } catch (IOException timeout) {
+                    stopRootShellLocked(); // discard a desynchronized shell before the next command
+                    throw timeout;
+                }
                 if (!line.stdout) continue; // command stderr is merged into stdout above
                 if (line.text == null) {
                     stopRootShellLocked();
