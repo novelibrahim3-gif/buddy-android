@@ -1289,7 +1289,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     }
 
     private String rootStatus() {
-        boolean root = RootControl.available();
+        String rootStatus = RootControl.status();
+        boolean root = rootStatus.startsWith("KernelSU: GRANTED");
         android.app.KeyguardManager keyguard = getSystemService(android.app.KeyguardManager.class);
         boolean screenOn = screenIsOn();
         boolean unlocked = screenOn && (keyguard == null || !keyguard.isKeyguardLocked());
@@ -1308,7 +1309,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         String linux = chat == null ? "unknown (no chat id)" : ChatHub.get(this).devFor(chat) ? "enabled" : "disabled";
         return "Root MCP: responding.\n"
                 + "Accessibility: " + (accessibility ? "ON (root runtime should stop)" : "OFF") + ".\n"
-                + "KernelSU: " + (root ? "GRANTED" : "NOT GRANTED; open KernelSU and authorize Buddy") + ".\n"
+                + rootStatus + ".\n"
                 + "Display: " + (screenOn ? "ON" : "OFF") + "; keyguard: " + (unlocked ? "UNLOCKED" : "LOCKED") + ".\n"
                 + "Approval notifications: " + (approvals ? "READY" : "NOT READY; enable Buddy notifications and its approval channel") + ".\n"
                 + "Display over other apps: " + (overlay ? "allowed" : "not allowed (needed for point_out/ask.highlight)") + ".\n"
