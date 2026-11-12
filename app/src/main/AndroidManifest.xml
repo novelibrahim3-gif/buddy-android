@@ -33,8 +33,10 @@
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- Needed on Android 11+ to see launchable apps for open_app / list_apps -->
+    <!-- Needed on Android 11+ to see launchable apps and the installed KernelSU managers. -->
     <queries>
+        <package android:name="com.rifsxd.ksunext" />
+        <package android:name="me.weishu.kernelsu" />
         <!-- the home app, to fold the bubble panel when Recents or Home opens -->
         <intent>
             <action android:name="android.intent.action.MAIN" />
