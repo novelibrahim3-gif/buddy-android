@@ -44,7 +44,7 @@ jobs:
           use warnings;
           use JSON::PP;
           @ARGV >= 3 && $ARGV[0] eq '-S' && $ARGV[1] eq '-c' && $ARGV[2] eq '.' or die "unsupported jq arguments\n";
-          my $json = JSON::PP->new->canonical->allow_nonref->compact;
+          my $json = JSON::PP->new->canonical->allow_nonref;
           while (<>) {
             next unless /\S/;
             my $value = $json->decode($_);
