@@ -26,6 +26,7 @@ public class MainActivity extends Screen implements ChatHub.Listener, Account.Li
     /** The Archived section is open (folded by default, each time the app starts). */
     private boolean showArchived;
     private FrameLayout navSlot;
+    private boolean rootProbeStarted;
 
     @Override
     protected void onNewIntent(Intent intent) {
@@ -87,6 +88,13 @@ public class MainActivity extends Screen implements ChatHub.Listener, Account.Li
     protected void onResume() {
         super.onResume();
         if (isFinishing()) return;
+        // Request KernelSU authorization automatically when the root-only runtime is active.
+        // KernelSU still owns the grant decision; Buddy cannot silently grant itself root.
+        if (!rootProbeStarted && !SetupState.accessibilityEnabled(this)) {
+            rootProbeStarted = true;
+            new Thread(() -> android.util.Log.i("BuddyRoot", RootControl.status()),
+                    "buddy-root-probe").start();
+        }
         // The independent MCP runtime takes over when Accessibility is switched off.
         RootMcpService.ensure(this);
         hub.addListener(this);

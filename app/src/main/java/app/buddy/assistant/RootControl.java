@@ -33,12 +33,21 @@ final class RootControl {
     private RootControl() {
     }
 
-    static boolean available() {
+    /** Requests KernelSU authorization when needed and reports the actual result, including failures. */
+    static String status() {
         try {
-            return "0".equals(run("id -u").trim());
+            String uid = run("id -u").trim();
+            return "0".equals(uid) ? "KernelSU: GRANTED (UID 0)"
+                    : "KernelSU: NOT GRANTED (su returned UID " + uid + ")";
         } catch (Exception e) {
-            return false;
+            String detail = e.getMessage();
+            if (detail == null || detail.trim().isEmpty()) detail = e.getClass().getSimpleName();
+            return "KernelSU: NOT GRANTED — " + detail;
         }
+    }
+
+    static boolean available() {
+        return status().startsWith("KernelSU: GRANTED");
     }
 
     static void tap(Context context, int x, int y) throws IOException {
@@ -139,7 +148,8 @@ final class RootControl {
         try {
             process = new ProcessBuilder(SU, "-c", command).redirectErrorStream(true).start();
         } catch (IOException e) {
-            throw new IOException("KernelSU/su could not be started. Grant Buddy root access in KernelSU, then retry.", e);
+            throw new IOException("Cannot start " + SU + ": " + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()), e);
         }
         ByteArrayOutputStream captured = new ByteArrayOutputStream();
         Thread drain = new Thread(() -> {

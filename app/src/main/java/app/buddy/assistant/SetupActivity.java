@@ -273,6 +273,26 @@ public class SetupActivity extends Screen implements Account.Listener, RemoteSes
                 replied ? Boolean.TRUE : null, null, null, null, null);
         setupCard(steps);
 
+        // -------------------------------------------------------------- root access
+        list.addView(sectionLabel(this, "Akses root"));
+        LinearLayout rootCard = card();
+        rootCard.setPaddingRelative(dp(this, 16), dp(this, 14), dp(this, 16), dp(this, 16));
+        rootCard.addView(title(this, "KernelSU", 15));
+        TextView rootStatus = text(this, "Memeriksa akses root…", 13, MUTED);
+        rootStatus.setPaddingRelative(0, dp(this, 6), 0, 0);
+        rootCard.addView(rootStatus, full());
+        TextView rootNote = text(this,
+                "Buddy akan meminta akses root otomatis saat runtime root-only aktif. Persetujuan tetap dikendalikan KernelSU; Buddy tidak dapat memberi izin kepada dirinya sendiri.",
+                12, MUTED);
+        rootNote.setPaddingRelative(0, dp(this, 6), 0, 0);
+        rootCard.addView(rootNote, full());
+        TextView rootRefresh = text(this, "Periksa ulang", 14, ACCENT_TEXT);
+        rootRefresh.setPaddingRelative(0, dp(this, 12), 0, 0);
+        rootRefresh.setOnClickListener(v -> refreshRootStatus(rootStatus, rootRefresh));
+        rootCard.addView(rootRefresh, full());
+        addCard(rootCard);
+        refreshRootStatus(rootStatus, rootRefresh);
+
         // ----------------------------------------------------------- appearance
         list.addView(sectionLabel(this, getString(R.string.setup_appearance)));
         LinearLayout ap = card();
@@ -1066,6 +1086,19 @@ public class SetupActivity extends Screen implements Account.Listener, RemoteSes
     }
 
     // ---------------------------------------------------------------- helpers
+
+    private void refreshRootStatus(TextView status, TextView action) {
+        action.setText("Memeriksa…");
+        new Thread(() -> {
+            String result = RootControl.status();
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) return;
+                status.setText(result);
+                status.setTextColor(result.startsWith("KernelSU: GRANTED") ? OK : ERR);
+                action.setText("Periksa ulang");
+            });
+        }, "buddy-root-settings-check").start();
+    }
 
     private LinearLayout card() {
         LinearLayout c = column(this);

@@ -119,6 +119,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         browserTools = new BrowserTools(this);
         server = new McpServer(Prefs.token(this), this);
         server.start();
+        // Proactively request/check KernelSU access when this standalone runtime starts.
+        new Thread(() -> android.util.Log.i("BuddyRoot", RootControl.status()),
+                "buddy-root-runtime-probe").start();
         // Restore scheduled chat/reminder alarms even when the Accessibility service is disabled.
         Schedules.serviceStarted(this);
     }
