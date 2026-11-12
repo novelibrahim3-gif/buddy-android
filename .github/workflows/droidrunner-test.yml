@@ -33,29 +33,18 @@ jobs:
           echo "=== BUDDY HELPER TESTS ON ANDROID RUNNER ==="
           echo "COMMIT=$(git rev-parse --short HEAD)"
           echo "ARCH=$(uname -m)"
-          BIN="${RUNNER_TEMP:-/tmp}/buddy-test-bin"
-          mkdir -p "$BIN"
-          if command -v jq >/dev/null 2>&1; then
-            :
-          elif command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1; then
-            cat > "$BIN/jq" <<'PERL'
-          #!/usr/bin/env perl
-          use strict;
-          use warnings;
-          use JSON::PP;
-          @ARGV >= 3 && $ARGV[0] eq '-S' && $ARGV[1] eq '-c' && $ARGV[2] eq '.' or die "unsupported jq arguments\n";
-          splice @ARGV, 0, 3;
-          my $json = JSON::PP->new->canonical->allow_nonref;
-          while (<>) {
-            next unless /\S/;
-            my $value = $json->decode($_);
-            print $json->encode($value), "\n";
-          }
-          PERL
-            chmod +x "$BIN/jq"
-          else
-            echo "BLOCKED: jq or Perl JSON::PP is unavailable."
-            exit 2
+          if ! command -v jq >/dev/null 2>&1; then
+            if [ "$(id -u)" -eq 0 ]; then
+              APT="apt-get"
+            elif command -v sudo >/dev/null 2>&1; then
+              APT="sudo -n apt-get"
+            else
+              echo "BLOCKED: jq missing and no permission to install it."
+              exit 2
+            fi
+            $APT update -qq
+            $APT install -y -qq jq
           fi
+          jq --version
           PATH="$BIN:$PATH" bash linux/test/run.sh
           echo "BUDDY_HELPER_TESTS_SUCCESS"
