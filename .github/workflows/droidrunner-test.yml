@@ -33,18 +33,20 @@ jobs:
           echo "=== BUDDY HELPER TESTS ON ANDROID RUNNER ==="
           echo "COMMIT=$(git rev-parse --short HEAD)"
           echo "ARCH=$(uname -m)"
+          BIN="${RUNNER_TEMP:-/tmp}/buddy-jq"
+          mkdir -p "$BIN/debs" "$BIN/root"
           if ! command -v jq >/dev/null 2>&1; then
-            if [ "$(id -u)" -eq 0 ]; then
-              APT="apt-get"
-            elif command -v sudo >/dev/null 2>&1; then
-              APT="sudo -n apt-get"
-            else
-              echo "BLOCKED: jq missing and no permission to install it."
-              exit 2
-            fi
-            $APT update -qq
-            $APT install -y -qq jq
+            (cd "$BIN/debs" && apt-get download jq libjq1 libonig5)
+            for deb in "$BIN"/debs/*.deb; do dpkg-deb -x "$deb" "$BIN/root"; done
+            cat > "$BIN/jq" <<'SH'
+          #!/usr/bin/env bash
+          ROOT="$(dirname "$0")/root"
+          export LD_LIBRARY_PATH="$ROOT/usr/lib/aarch64-linux-gnu:${LD_LIBRARY_PATH:-}"
+          exec "$ROOT/usr/bin/jq" "$@"
+          SH
+            chmod +x "$BIN/jq"
           fi
+          PATH="$BIN:$PATH"
           jq --version
-          PATH="$BIN:$PATH" bash linux/test/run.sh
+          bash linux/test/run.sh
           echo "BUDDY_HELPER_TESTS_SUCCESS"
