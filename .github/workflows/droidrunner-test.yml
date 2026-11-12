@@ -33,31 +33,27 @@ jobs:
           echo "=== BUDDY HELPER TESTS ON ANDROID RUNNER ==="
           echo "COMMIT=$(git rev-parse --short HEAD)"
           echo "ARCH=$(uname -m)"
-          for tool in jq node nodejs python3 perl ruby busybox apt-get pkg apk curl wget; do
-            if command -v "$tool" >/dev/null 2>&1; then echo "AVAILABLE $tool: $(command -v "$tool")"; fi
-          done
           BIN="${RUNNER_TEMP:-/tmp}/buddy-test-bin"
           mkdir -p "$BIN"
           if command -v jq >/dev/null 2>&1; then
             :
-          elif command -v node >/dev/null 2>&1; then
-            cat > "$BIN/jq" <<'JS'
-          #!/usr/bin/env node
-          const fs = require('fs');
-          const args = process.argv.slice(2);
-          if (args[0] !== '-S' || args[1] !== '-c' || args[2] !== '.' || args.length > 4) process.exit(2);
-          const input = args.length === 4 ? fs.readFileSync(args[3], 'utf8') : fs.readFileSync(0, 'utf8');
-          function sort(v) {
-            if (Array.isArray(v)) return v.map(sort);
-            if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, sort(v[k])]));
-            return v;
+          elif command -v perl >/dev/null 2>&1 && perl -MJSON::PP -e 1 >/dev/null 2>&1; then
+            cat > "$BIN/jq" <<'PERL'
+          #!/usr/bin/env perl
+          use strict;
+          use warnings;
+          use JSON::PP;
+          @ARGV >= 3 && $ARGV[0] eq '-S' && $ARGV[1] eq '-c' && $ARGV[2] eq '.' or die "unsupported jq arguments\n";
+          my $json = JSON::PP->new->canonical->allow_nonref->compact;
+          while (<>) {
+            next unless /\S/;
+            my $value = $json->decode($_);
+            print $json->encode($value), "\n";
           }
-          for (const line of input.split(/\r?\n/)) if (line.trim()) console.log(JSON.stringify(sort(JSON.parse(line))));
-          JS
+          PERL
             chmod +x "$BIN/jq"
-            PATH="$BIN:$PATH"
           else
-            echo "BLOCKED: jq and Node.js are not installed; no safe JSON normalizer is available."
+            echo "BLOCKED: jq or Perl JSON::PP is unavailable."
             exit 2
           fi
           PATH="$BIN:$PATH" bash linux/test/run.sh
