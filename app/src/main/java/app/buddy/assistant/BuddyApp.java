@@ -10,6 +10,7 @@ public class BuddyApp extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        RootControl.configure(this);
         ctx = this;
     }
 
