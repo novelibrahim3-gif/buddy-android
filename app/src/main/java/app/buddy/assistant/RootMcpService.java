@@ -15,6 +15,7 @@ import android.os.IBinder;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
+import android.view.WindowManager;
 
 import org.json.JSONArray;
 import org.json.JSONException;
