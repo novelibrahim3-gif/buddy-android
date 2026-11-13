@@ -2651,6 +2651,7 @@ final class Bubble implements ChatHub.Listener {
 
     /** What a tool is doing right now (see setActivity), shown in the pill for a few seconds. */
     private String activity;
+    private String externalStatus;
     private boolean activityBrowser;
     /** The browser tab of that step (see Browser.key), for the thumbnail. */
     private String activityTab;
@@ -2663,6 +2664,7 @@ final class Bubble implements ChatHub.Listener {
      * null.
      */
     void setActivity(String text, String browserTab) {
+        if (text != null) externalStatus = null;
         activity = text;
         activityBrowser = browserTab != null;
         activityTab = browserTab;
@@ -2677,9 +2679,9 @@ final class Bubble implements ChatHub.Listener {
         refreshStatus();
     }
 
-    /** External status (the notify tool): shown on the current chat until its next step. */
+    /** External progress status (e.g. Hermes): shown until a new tool activity or Buddy chat run begins. */
     void setStatus(String text) {
-        if (text != null && !text.isEmpty()) sessions.current.status = text;
+        externalStatus = text == null || text.trim().isEmpty() ? null : text.trim();
         refreshStatus();
     }
 
@@ -2690,7 +2692,7 @@ final class Bubble implements ChatHub.Listener {
         if (working && !wasWorking) maybePeek();
         wasWorking = working;
         boolean paused = host.paused();
-        String text = pendingConfirm == null ? hub.pillText()
+        String text = pendingConfirm == null ? (hub.runningCount() == 0 && externalStatus != null ? externalStatus : hub.pillText())
                 : handsOn ? svc.getString(R.string.bubble_pill_hands_on, clip(confirmText.getText().toString(), 90))
                 : svc.getString(asking ? R.string.bubble_pill_waiting_answer : R.string.bubble_pill_waiting_approval);
         boolean fresh = activity != null && android.os.SystemClock.elapsedRealtime() - activityAt < ACTIVITY_MS;
