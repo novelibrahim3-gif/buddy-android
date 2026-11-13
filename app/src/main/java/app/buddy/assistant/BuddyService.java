@@ -599,7 +599,7 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
     }
 
     /** Pause (main thread): the agent's next phone action waits until resume, so the user can use the phone. */
-    void pause() {
+    @Override public void pause() {
         pause(R.string.service_paused_note, R.string.service_paused_toast);
     }
 
