@@ -459,7 +459,8 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
         String safe = status == null ? "" : status.trim();
         if (safe.length() > 100) safe = safe.substring(0, 100);
         if (safe.isEmpty()) throw new IllegalArgumentException("Status cannot be empty.");
-        main.post(() -> { if (bubble != null) bubble.setStatus(safe); });
+        final String shown = safe;
+        main.post(() -> { if (bubble != null) bubble.setStatus(shown); });
         return "Buddy bubble status updated.";
     }
 
