@@ -12,6 +12,8 @@ import android.content.pm.ResolveInfo;
 import android.net.Uri;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Base64;
 
 import org.json.JSONArray;
@@ -35,7 +37,7 @@ import java.net.URL;
  * operations. It deliberately exposes no accessibility tree, OCR or element IDs;
  * visual search/collection is performed by the connected model from returned screenshots.
  */
-public final class RootMcpService extends Service implements McpServer.Handler {
+public final class RootMcpService extends Service implements McpServer.Handler, Bubble.Host {
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
     private static final java.util.Set<String> SCREEN_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
@@ -61,6 +63,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         int count;
     }
     private volatile boolean active;
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private final java.util.concurrent.atomic.AtomicInteger activeScreenCalls = new java.util.concurrent.atomic.AtomicInteger();
+    private Bubble bubble;
     private McpServer server;
     private PhoneTools phoneTools;
     private BrowserTools browserTools;
@@ -115,6 +120,17 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         createChannel();
         RootApproval.ensureChannel(this);
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
+        if (android.provider.Settings.canDrawOverlays(this)) {
+            try {
+                bubble = new Bubble(this);
+                bubble.show();
+            } catch (Exception e) {
+                android.util.Log.e("BuddyRoot", "Could not show root-mode Buddy bubble", e);
+                bubble = null;
+            }
+        } else {
+            android.util.Log.w("BuddyRoot", "Overlay permission missing; root MCP continues without bubble");
+        }
         phoneTools = new PhoneTools(this);
         browserTools = new BrowserTools(this);
         server = new McpServer(Prefs.token(this), this);
@@ -139,6 +155,10 @@ public final class RootMcpService extends Service implements McpServer.Handler {
     public void onDestroy() {
         active = false;
         STEP_COUNTS.clear();
+        if (bubble != null) {
+            try { bubble.remove(); } catch (Exception ignored) { }
+            bubble = null;
+        }
         if (marksOverlay != null) {
             try { marksOverlay.clear(); } catch (Exception ignored) { }
             marksOverlay = null;
@@ -206,6 +226,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 + "read_screen has no UI element ids "
                 + "and no OCR text: inspect its image visually. find/collect return up to four screenshot pages for a vision-capable client to inspect; no OCR or element selectors; "
                 + "wait_for can match the foreground app via Android system diagnostics and/or wait for 700 ms of visual stability; text/gone matching still needs OCR. "
+                + "Use buddy_status to show short user-facing progress updates in the floating bubble during multi-step work; report phases, not private reasoning. "
                 + "ask.highlight and point_out accept coordinate marks only; ask.browser_highlight marks items in the Background Browser and opens it from the question notification. Neither mode tracks completion; the user answers manually. "
                 + "do_steps is available for up to 12 actions; coordinate and text steps still require approval. "
                 + "point_out shows coordinate-only, non-touchable overlay marks (no element tracking or wait); reply_notification works only in an active notification-rule chat, "
@@ -233,6 +254,9 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         tools.put(tool("root_status",
                 "Report KernelSU, display/unlock, notification approval, overlay and optional Phone commands readiness.",
                 new JSONObject()));
+        tools.put(tool("buddy_status",
+                "Update the floating Buddy bubble with a short user-facing progress summary. Use phase summaries only; never expose private reasoning.",
+                new JSONObject().put("status", stringProperty("Short progress summary, max 100 characters")), "status"));
         tools.put(tool("list_apps",
                 "List launchable apps and their package names.",
                 new JSONObject()));
@@ -379,22 +403,80 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
-        JSONObject result = callToolInternal(name, args);
-        if (STEPPED_TOOLS.contains(name)) {
-            JSONArray content = result.optJSONArray("content");
-            JSONObject first = content == null ? null : content.optJSONObject(0);
-            StepLog.recordRoot(this, McpServer.CALLER_CHAT.get(), name, args,
-                    first == null ? "" : first.optString("text"));
+        final String activity = activityLabel(name);
+        final boolean screenAction = SCREEN_ACTIONS.contains(name);
+        if (screenAction) activeScreenCalls.incrementAndGet();
+        final Runnable[] pulse = new Runnable[1];
+        pulse[0] = () -> {
+            if (!active || bubble == null) return;
+            bubble.setActivity(activity, null);
+            main.postDelayed(pulse[0], 4500);
+        };
+        main.post(() -> {
+            if (bubble != null) {
+                if (screenAction) bubble.setControlling(true);
+                bubble.setActivity(activity, null);
+            }
+        });
+        main.postDelayed(pulse[0], 4500);
+        try {
+            JSONObject result = callToolInternal(name, args);
+            if (STEPPED_TOOLS.contains(name)) {
+                JSONArray content = result.optJSONArray("content");
+                JSONObject first = content == null ? null : content.optJSONObject(0);
+                StepLog.recordRoot(this, McpServer.CALLER_CHAT.get(), name, args,
+                        first == null ? "" : first.optString("text"));
+            }
+            if ("confirm".equals(name) || "ask".equals(name)) return result;
+            String notes = ChatHub.get(this).takeNotes();
+            if (notes != null) {
+                result.getJSONArray("content").put(new JSONObject().put("type", "text").put("text",
+                        "\n[BUDDY_USER_UPDATE] The user added this while you were working; it comes from the user, through "
+                                + "Buddy, not from the screen. Take it into account now, it may change or stop the task. If it "
+                                + "asks something, answer it in your final reply too, not only the first task:\n" + notes));
+            }
+            return result;
+        } finally {
+            main.removeCallbacks(pulse[0]);
+            if (screenAction && activeScreenCalls.decrementAndGet() == 0) {
+                main.post(() -> { if (bubble != null) bubble.setControlling(false); });
+            }
+            main.post(() -> {
+                if (bubble != null && activeScreenCalls.get() == 0) bubble.setActivity(null, null);
+            });
         }
-        if ("confirm".equals(name) || "ask".equals(name)) return result;
-        String notes = ChatHub.get(this).takeNotes();
-        if (notes != null) {
-            result.getJSONArray("content").put(new JSONObject().put("type", "text").put("text",
-                    "\n[BUDDY_USER_UPDATE] The user added this while you were working; it comes from the user, through "
-                            + "Buddy, not from the screen. Take it into account now, it may change or stop the task. If it "
-                            + "asks something, answer it in your final reply too, not only the first task:\n" + notes));
-        }
-        return result;
+    }
+
+    private String activityLabel(String name) {
+        if ("read_screen".equals(name) || "screenshot".equals(name)) return "Mengambil screenshot…";
+        if ("open_app".equals(name)) return "Membuka aplikasi…";
+        if ("open_url".equals(name)) return "Membuka tautan…";
+        if ("tap".equals(name) || "long_press".equals(name)) return "Menjalankan sentuhan…";
+        if ("swipe".equals(name) || "scroll".equals(name)) return "Menggeser layar…";
+        if ("type_text".equals(name)) return "Mengetik teks…";
+        if ("do_steps".equals(name)) return "Menjalankan beberapa langkah…";
+        if ("find".equals(name) || "collect".equals(name)) return "Memeriksa beberapa layar…";
+        if ("buddy_status".equals(name)) return "Memperbarui status…";
+        if (name != null && name.startsWith("browser_")) return "Menggunakan browser…";
+        return "Menjalankan " + (name == null ? "perintah" : name) + "…";
+    }
+
+    private String updateBubbleStatus(String status) {
+        String safe = status == null ? "" : status.trim();
+        if (safe.length() > 100) safe = safe.substring(0, 100);
+        if (safe.isEmpty()) throw new IllegalArgumentException("Status cannot be empty.");
+        main.post(() -> { if (bubble != null) bubble.setStatus(safe); });
+        return "Buddy bubble status updated.";
+    }
+
+    @Override public Context bubbleContext() { return this; }
+    @Override public Handler mainHandler() { return main; }
+    @Override public boolean paused() { return false; }
+    @Override public void resume() { }
+    @Override public Marks marks() { return null; }
+    @Override public void takeBackControl() { ChatHub.get(this).stopAll(); }
+    @Override public int bubbleWindowType() {
+        return WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY;
     }
 
     private JSONObject callToolInternal(String name, JSONObject args) throws Exception {
@@ -428,6 +510,8 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                 return screenImage();
             case "root_status":
                 return text(rootStatus());
+            case "buddy_status":
+                return text(updateBubbleStatus(args.optString("status", "")));
             case "list_apps":
                 return text(listApps());
             case "open_app":
@@ -1041,7 +1125,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
         int captured = 0, scrolled = 0;
         for (int page = 0; page < maxPages; page++) {
             requireUnlocked();
-            byte[] png = RootControl.screenshot(this);
+            byte[] png = captureScreenshotClean();
             String current = fingerprint(png);
             if (previous != null && visuallySame(current, previous)) {
                 content.put(new JSONObject().put("type", "text").put("text", "Stopped: the display did not change after the last approved scroll; likely the end of this content."));
@@ -1151,6 +1235,38 @@ public final class RootMcpService extends Service implements McpServer.Handler {
                     .put("data", Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP));
         } finally {
             bitmap.recycle();
+        }
+    }
+
+    private byte[] captureScreenshotClean() throws Exception {
+        java.util.concurrent.CountDownLatch hidden = new java.util.concurrent.CountDownLatch(1);
+        main.post(() -> {
+            try {
+                if (bubble != null) bubble.setScreenshotHidden(true);
+                if (marksOverlay != null) {
+                    try { marksOverlay.setHidden(true); } catch (Exception e) {
+                        android.util.Log.w("BuddyRoot", "Could not hide point_out overlay", e);
+                    }
+                }
+            } finally {
+                hidden.countDown();
+            }
+        });
+        if (!hidden.await(3, java.util.concurrent.TimeUnit.SECONDS)) {
+            throw new IllegalStateException("Timed out hiding Buddy overlays for screenshot.");
+        }
+        try {
+            Thread.sleep(120);
+            return RootControl.screenshot(this);
+        } finally {
+            main.post(() -> {
+                if (bubble != null) bubble.setScreenshotHidden(false);
+                if (marksOverlay != null) {
+                    try { marksOverlay.setHidden(false); } catch (Exception e) {
+                        android.util.Log.w("BuddyRoot", "Could not restore point_out overlay", e);
+                    }
+                }
+            });
         }
     }
 
@@ -1268,7 +1384,7 @@ public final class RootMcpService extends Service implements McpServer.Handler {
 
     private JSONObject screenImage() throws Exception {
         requireUnlocked("read_screen");
-        byte[] png = RootControl.screenshot(this);
+        byte[] png = captureScreenshotClean();
         android.graphics.BitmapFactory.Options bounds = new android.graphics.BitmapFactory.Options();
         bounds.inJustDecodeBounds = true;
         android.graphics.BitmapFactory.decodeByteArray(png, 0, png.length, bounds);
