@@ -1062,7 +1062,7 @@ final class Bubble implements ChatHub.Listener {
     void applyEnabled() {
         if (locked && expanded && pendingConfirm == null) collapse();
         boolean activityVisible = activity != null && android.os.SystemClock.elapsedRealtime() - activityAt < ACTIVITY_MS;
-        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused() || activityVisible);
+        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused() || activityVisible || externalStatus != null);
         boolean wasHidden = root.getVisibility() != View.VISIBLE;
         root.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show && wasHidden && !expanded) popIn();
@@ -2688,6 +2688,7 @@ final class Bubble implements ChatHub.Listener {
         if (externalStatus != null && sessions != null && sessions.current != null)
             sessions.current.status = externalStatus;
         refreshStatus();
+        applyEnabled();
     }
 
     /** Pill, face, badge and header from the hub's state. */
