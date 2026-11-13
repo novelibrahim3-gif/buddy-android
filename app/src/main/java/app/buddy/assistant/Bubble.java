@@ -2684,6 +2684,8 @@ final class Bubble implements ChatHub.Listener {
     /** External progress status (e.g. Hermes): shown until a new tool activity or Buddy chat run begins. */
     void setStatus(String text) {
         externalStatus = text == null || text.trim().isEmpty() ? null : text.trim();
+        if (externalStatus != null && sessions != null && sessions.current != null)
+            sessions.current.status = externalStatus;
         refreshStatus();
     }
 
