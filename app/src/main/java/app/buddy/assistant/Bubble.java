@@ -142,7 +142,7 @@ final class Bubble implements ChatHub.Listener {
     private LinearLayout sessionList;
 
     Bubble(BuddyService svc) {
-        this(svc, svc);
+        this((Host) svc);
     }
 
     Bubble(Host host) {
