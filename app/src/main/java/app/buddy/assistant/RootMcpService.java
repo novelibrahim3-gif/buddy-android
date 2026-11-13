@@ -65,7 +65,6 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     }
     private volatile boolean active;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final java.util.concurrent.atomic.AtomicInteger activeScreenCalls = new java.util.concurrent.atomic.AtomicInteger();
     private Bubble bubble;
     private McpServer server;
     private PhoneTools phoneTools;
@@ -405,8 +404,6 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
         final String activity = activityLabel(name);
-        final boolean screenAction = SCREEN_ACTIONS.contains(name);
-        if (screenAction) activeScreenCalls.incrementAndGet();
         final Runnable[] pulse = new Runnable[1];
         pulse[0] = () -> {
             if (!active || bubble == null) return;
@@ -415,7 +412,6 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
         };
         main.post(() -> {
             if (bubble != null) {
-                if (screenAction) bubble.setControlling(true);
                 bubble.setActivity(activity, null);
             }
         });
@@ -439,11 +435,8 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
             return result;
         } finally {
             main.removeCallbacks(pulse[0]);
-            if (screenAction && activeScreenCalls.decrementAndGet() == 0) {
-                main.post(() -> { if (bubble != null) bubble.setControlling(false); });
-            }
             main.post(() -> {
-                if (bubble != null && activeScreenCalls.get() == 0) bubble.setActivity(null, null);
+                if (bubble != null) bubble.setActivity(null, null);
             });
         }
     }
