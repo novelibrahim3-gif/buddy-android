@@ -1060,7 +1060,8 @@ final class Bubble implements ChatHub.Listener {
     /** The bubble can be turned off in the app; it then only appears for approval cards. */
     void applyEnabled() {
         if (locked && expanded && pendingConfirm == null) collapse();
-        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused());
+        boolean activityVisible = activity != null && android.os.SystemClock.elapsedRealtime() - activityAt < ACTIVITY_MS;
+        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused() || activityVisible);
         boolean wasHidden = root.getVisibility() != View.VISIBLE;
         root.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show && wasHidden && !expanded) popIn();
@@ -2677,6 +2678,7 @@ final class Bubble implements ChatHub.Listener {
         host.mainHandler().removeCallbacks(activityExpired);
         host.mainHandler().postDelayed(activityExpired, ACTIVITY_MS + 100);
         refreshStatus();
+        applyEnabled();
     }
 
     /** External progress status (e.g. Hermes): shown until a new tool activity or Buddy chat run begins. */
@@ -2703,7 +2705,7 @@ final class Bubble implements ChatHub.Listener {
             String step = fresh && !activityBrowser ? activity : text; // the tool's own step is the most precise
             text = step == null || step.isEmpty() ? svc.getString(R.string.bubble_using_phone)
                     : svc.getString(R.string.bubble_using_phone_status, step);
-        } else if (browsing && pendingConfirm == null) {
+        } else if (fresh && activity != null && pendingConfirm == null) {
             text = activity;
         }
         thumbTab = browsing && !paused && pendingConfirm == null ? activityTab : null;
@@ -2736,7 +2738,7 @@ final class Bubble implements ChatHub.Listener {
         pill.setBackground(rounded(controlling ? Ui.ACCENT : Ui.BG, 18, Ui.ACCENT, 1));
         badge.setVisibility(!expanded && hub.anyUnread() ? View.VISIBLE : View.GONE);
         updateThumb();
-        setWorking(!paused && (running || controlling || browsing));
+        setWorking(!paused && (running || controlling || browsing || (fresh && activity != null)));
         updateHeader();
         if (!expanded) {
             try {
