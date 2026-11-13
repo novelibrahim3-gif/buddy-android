@@ -61,7 +61,19 @@ final class Bubble implements ChatHub.Listener {
     }
 
 
-    private final BuddyService svc;
+    interface Host {
+        Context bubbleContext();
+        android.os.Handler mainHandler();
+        boolean paused();
+        void resume();
+        Marks marks();
+        void takeBackControl();
+        int bubbleWindowType();
+    }
+
+    private final Context svc;
+    private final Host host;
+    private final java.util.IdentityHashMap<View, Integer> screenshotVisibility = new java.util.IdentityHashMap<>();
     private final WindowManager wm;
     private final Vibrator vibrator;
 
@@ -130,9 +142,35 @@ final class Bubble implements ChatHub.Listener {
     private LinearLayout sessionList;
 
     Bubble(BuddyService svc) {
-        this.svc = svc;
+        this(svc, svc);
+    }
+
+    Bubble(Host host) {
+        this.host = host;
+        this.svc = host.bubbleContext();
         this.wm = svc.getSystemService(WindowManager.class);
         this.vibrator = svc.getSystemService(Vibrator.class);
+    }
+
+    /** Hide every Buddy-owned window while the real display is captured, then restore exact visibility. */
+    void setScreenshotHidden(boolean hidden) {
+        if (hidden) {
+            screenshotVisibility.clear();
+            View[] views = {root, arcs, dismissWindow, waves, thumbWindow};
+            for (View view : views) {
+                if (view == null) continue;
+                screenshotVisibility.put(view, view.getVisibility());
+                view.setVisibility(View.GONE);
+            }
+        } else {
+            for (java.util.Map.Entry<View, Integer> entry : screenshotVisibility.entrySet()) {
+                View view = entry.getKey();
+                if (view != null) {
+                    try { view.setVisibility(entry.getValue()); } catch (Exception ignored) { }
+                }
+            }
+            screenshotVisibility.clear();
+        }
     }
 
     // ------------------------------------------------------------- layout
@@ -161,7 +199,7 @@ final class Bubble implements ChatHub.Listener {
         });
         lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, 0, PixelFormat.TRANSLUCENT);
+                host.bubbleWindowType(), 0, PixelFormat.TRANSLUCENT);
         root.addView(collapsed);
         applyCollapsedParams();
         createArcs();
@@ -283,7 +321,7 @@ final class Bubble implements ChatHub.Listener {
             if (b - t != ob - ot || r - l != or - ol) updateThumb();
         });
         pill.setOnClickListener(v -> { // paused, the pill is the Resume button
-            if (svc.paused() && pendingConfirm == null) svc.resume();
+            if (host.paused() && pendingConfirm == null) host.resume();
             else if (thumbTab != null && thumbTab.equals(thumbHidden)) { // browsing with the thumbnail swiped away: back
                 thumbHidden = null;
                 updateThumb();
@@ -930,7 +968,7 @@ final class Bubble implements ChatHub.Listener {
         Sessions.Session call = CodexLive.session(); // during a live call the bubble opens its chat (unless a chat
         if (call != null && call != sessions.current && pendingConfirm == null) hub.select(call); // asks for an OK)
         expanded = true;
-        svc.marks().setPanelOpen(true);
+        if (host.marks() != null) host.marks().setPanelOpen(true);
         root.setVisibility(View.VISIBLE);
         badge.setVisibility(View.GONE);
         updateThumb();
@@ -975,7 +1013,7 @@ final class Bubble implements ChatHub.Listener {
         if (!expanded) return;
         if (Voice.listening()) Voice.stopListening();
         expanded = false;
-        svc.marks().setPanelOpen(false);
+        if (host.marks() != null) host.marks().setPanelOpen(false);
         updateViewing();
         unregisterBack();
         hideKeyboard();
@@ -1022,7 +1060,7 @@ final class Bubble implements ChatHub.Listener {
     /** The bubble can be turned off in the app; it then only appears for approval cards. */
     void applyEnabled() {
         if (locked && expanded && pendingConfirm == null) collapse();
-        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || svc.paused());
+        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused());
         boolean wasHidden = root.getVisibility() != View.VISIBLE;
         root.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show && wasHidden && !expanded) popIn();
@@ -1071,7 +1109,7 @@ final class Bubble implements ChatHub.Listener {
         arcs = new ArcView(svc);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -1122,7 +1160,7 @@ final class Bubble implements ChatHub.Listener {
         dismissCircle.setElevation(dp(4));
         dismissWindow.addView(dismissCircle, new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER));
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(dp(110), dp(110),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
@@ -1201,7 +1239,7 @@ final class Bubble implements ChatHub.Listener {
                     head.setScaleY(1f);
                     head.setRotation(0f);
                     head.setAlpha(1f);
-                    setWorking(!svc.paused() && (running || controlling), true);
+                    setWorking(!host.paused() && (running || controlling), true);
                 }).start();
         dismissCircle.animate().scaleX(1.45f).scaleY(1.45f).setDuration(110)
                 .setInterpolator(new DecelerateInterpolator())
@@ -1432,9 +1470,9 @@ final class Bubble implements ChatHub.Listener {
         vibrate(30);
         Prefs.setMenuHinted(svc);
         java.util.List<RadialMenu.Action> acts = new java.util.ArrayList<>();
-        boolean paused = svc.paused(), working = running || controlling || paused;
+        boolean paused = host.paused(), working = running || controlling || paused;
         if (working) acts.add(new RadialMenu.Action(R.drawable.ic_stop, svc.getString(R.string.menu_stop_task), true, () -> {
-            if (controlling || paused) svc.takeBackControl();
+            if (controlling || paused) host.takeBackControl();
             else {
                 hub.stopAll();
                 toast(svc.getString(R.string.bubble_stopping));
@@ -1630,7 +1668,7 @@ final class Bubble implements ChatHub.Listener {
         int[] loc = new int[2];
         face.getLocationOnScreen(loc);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(w, h,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -2634,8 +2672,8 @@ final class Bubble implements ChatHub.Listener {
             if (activityAt - thumbHiddenAt > THUMB_RUN_GAP_MS) thumbHidden = null;
             else thumbHiddenAt = activityAt;
         }
-        svc.mainHandler().removeCallbacks(activityExpired);
-        svc.mainHandler().postDelayed(activityExpired, ACTIVITY_MS + 100);
+        host.mainHandler().removeCallbacks(activityExpired);
+        host.mainHandler().postDelayed(activityExpired, ACTIVITY_MS + 100);
         refreshStatus();
     }
 
@@ -2651,7 +2689,7 @@ final class Bubble implements ChatHub.Listener {
         boolean working = running || controlling;
         if (working && !wasWorking) maybePeek();
         wasWorking = working;
-        boolean paused = svc.paused();
+        boolean paused = host.paused();
         String text = pendingConfirm == null ? hub.pillText()
                 : handsOn ? svc.getString(R.string.bubble_pill_hands_on, clip(confirmText.getText().toString(), 90))
                 : svc.getString(asking ? R.string.bubble_pill_waiting_answer : R.string.bubble_pill_waiting_approval);
@@ -2749,7 +2787,7 @@ final class Bubble implements ChatHub.Listener {
         thumbWindow.setVisibility(View.GONE);
         // the bubble's own flags, so its position counts from the same place (see placeThumb)
         thumbLp = new WindowManager.LayoutParams(dp(160), dp(328),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         thumbLp.gravity = Gravity.TOP | Gravity.START;
@@ -2874,7 +2912,7 @@ final class Bubble implements ChatHub.Listener {
         ring.setSpinning(on);
         // keep the fired-up / bracing face while the bubble is being dragged
         if (force || !faceDragging()) showFace(on ? R.drawable.bubble_face_thinking
-                : svc.paused() ? R.drawable.bubble_face_paused : R.drawable.bubble_face);
+                : host.paused() ? R.drawable.bubble_face_paused : R.drawable.bubble_face);
         if (on && breathing == null) {
             breathing = ValueAnimator.ofFloat(1f, 0.9f);
             breathing.setDuration(750);
@@ -3406,7 +3444,7 @@ final class Bubble implements ChatHub.Listener {
                         }
                         endArcs(false);
                         showDismissTarget(false);
-                        setWorking(!svc.paused() && (running || controlling), true);
+                        setWorking(!host.paused() && (running || controlling), true);
                         // fling to the nearest edge with a little bounce
                         final boolean right = lp.x + faceOffX > screen().width() / 2;
                         int edgeX = right ? screen().width() - root.getWidth() - dp(6) : dp(6);
@@ -3435,7 +3473,7 @@ final class Bubble implements ChatHub.Listener {
                     if (menu) return true;
                     endArcs(false);
                     showDismissTarget(false);
-                    setWorking(!svc.paused() && (running || controlling), true);
+                    setWorking(!host.paused() && (running || controlling), true);
                     return true;
                 default:
                     return false;
