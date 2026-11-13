@@ -163,7 +163,9 @@ final class Bubble implements ChatHub.Listener {
                 screenshotVisibility.put(view, view.getVisibility());
                 view.setVisibility(View.GONE);
             }
+            if (radial != null) radial.setScreenshotHidden(true);
         } else {
+            if (radial != null) radial.setScreenshotHidden(false);
             for (java.util.Map.Entry<View, Integer> entry : screenshotVisibility.entrySet()) {
                 View view = entry.getKey();
                 if (view != null) {
@@ -208,7 +210,7 @@ final class Bubble implements ChatHub.Listener {
         wm.addView(root, lp);
         createThumb();
         hub = ChatHub.get(svc);
-        radial = new RadialMenu(svc, wm);
+        radial = new RadialMenu(svc, wm, host.bubbleWindowType());
         sessions = hub.sessions;
         hub.addListener(this);
         renderCurrent();
