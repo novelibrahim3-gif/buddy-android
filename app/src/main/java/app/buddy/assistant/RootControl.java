@@ -297,6 +297,13 @@ final class RootControl {
         throw new IOException("Unable to open a UID 0 shell. " + failures.toString().trim());
     }
 
+    /**
+     * Mirrors KernelSU Next's own createRootShellBuilder():
+     * sh -c '<manager libksud.so> debug su || su || sh'.
+     *
+     * libksud is not itself the persistent shell executable. It must be invoked
+     * as a command from sh so its stdio is inherited by the root shell it starts.
+     */
     private static List<RootCommand> rootCommands(Context context) {
         List<RootCommand> commands = new ArrayList<>();
         PackageManager pm = context.getPackageManager();
@@ -306,14 +313,17 @@ final class RootControl {
                 if (info.nativeLibraryDir == null) continue;
                 File daemon = new File(info.nativeLibraryDir, "libksud.so");
                 if (daemon.isFile()) {
-                    commands.add(new RootCommand(new String[]{daemon.getAbsolutePath(), "debug", "su"},
-                            packageName + " libksud.so debug su"));
+                    String chain = quote(daemon.getAbsolutePath()) + " debug su || su || sh";
+                    commands.add(new RootCommand(new String[]{"sh", "-c", chain},
+                            packageName + " official libksud/su/sh chain"));
                 }
             } catch (PackageManager.NameNotFoundException ignored) {
                 // This manager is not installed; try the next supported root entry point.
             }
         }
-        commands.add(new RootCommand(new String[]{"su"}, "su from app PATH"));
+        // Generic fallback for other root implementations; stay in a shell process
+        // even when su is unavailable so status can report the actual resulting UID.
+        commands.add(new RootCommand(new String[]{"sh", "-c", "su || sh"}, "su/sh fallback"));
         return commands;
     }
 
