@@ -66,6 +66,7 @@ final class Bubble implements ChatHub.Listener {
         android.os.Handler mainHandler();
         boolean paused();
         void resume();
+        void pause();
         Marks marks();
         void takeBackControl();
         int bubbleWindowType();
@@ -1479,8 +1480,8 @@ final class Bubble implements ChatHub.Listener {
                 toast(svc.getString(R.string.bubble_stopping));
             }
         }));
-        if (paused) acts.add(new RadialMenu.Action(R.drawable.ic_play, svc.getString(R.string.menu_resume), false, svc::resume));
-        else if (working) acts.add(new RadialMenu.Action(R.drawable.ic_pause, svc.getString(R.string.menu_pause), false, svc::pause));
+        if (paused) acts.add(new RadialMenu.Action(R.drawable.ic_play, svc.getString(R.string.menu_resume), false, host::resume));
+        else if (working) acts.add(new RadialMenu.Action(R.drawable.ic_pause, svc.getString(R.string.menu_pause), false, host::pause));
         if (hub.runningCount() > 0) acts.add(new RadialMenu.Action(R.drawable.ms_mic, svc.getString(R.string.menu_add_instruction), false, this::dictateNote));
         if (Voice.isSpeaking()) acts.add(new RadialMenu.Action(R.drawable.ms_volume_off, svc.getString(R.string.menu_stop_voice), false, Voice::stopSpeaking));
         // listens with the chat closed, like Tap the bubble to talk (opening the chat first lost the mic)
