@@ -1248,10 +1248,10 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
                 hidden.countDown();
             }
         });
-        if (!hidden.await(3, java.util.concurrent.TimeUnit.SECONDS)) {
-            throw new IllegalStateException("Timed out hiding Buddy overlays for screenshot.");
-        }
         try {
+            if (!hidden.await(3, java.util.concurrent.TimeUnit.SECONDS)) {
+                throw new IllegalStateException("Timed out hiding Buddy overlays for screenshot.");
+            }
             Thread.sleep(120);
             return RootControl.screenshot(this);
         } finally {
