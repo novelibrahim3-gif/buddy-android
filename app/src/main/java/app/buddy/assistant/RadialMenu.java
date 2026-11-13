@@ -46,7 +46,10 @@ final class RadialMenu {
 
     private final Context c;
     private final WindowManager wm;
+    private final int windowType;
     private FrameLayout win;
+    private FrameLayout screenshotWindow;
+    private int screenshotVisibility = -1;
     private Glow glow;
     private final List<View> items = new ArrayList<>();
     private final List<float[]> targets = new ArrayList<>(); // item centres in the window
@@ -54,9 +57,24 @@ final class RadialMenu {
     private int originX, originY, size, hovered = -1;
     private Runnable onClosed;
 
-    RadialMenu(Context c, WindowManager wm) {
+    RadialMenu(Context c, WindowManager wm, int windowType) {
         this.c = c;
         this.wm = wm;
+        this.windowType = windowType;
+    }
+
+    /** Hide the radial-menu window during a clean screen capture and restore its prior visibility. */
+    void setScreenshotHidden(boolean hidden) {
+        if (hidden) {
+            if (win == null || screenshotWindow != null) return;
+            screenshotWindow = win;
+            screenshotVisibility = win.getVisibility();
+            win.setVisibility(View.GONE);
+        } else if (screenshotWindow != null) {
+            try { screenshotWindow.setVisibility(screenshotVisibility); } catch (Exception ignored) { }
+            screenshotWindow = null;
+            screenshotVisibility = -1;
+        }
     }
 
     boolean isOpen() {
@@ -112,7 +130,7 @@ final class RadialMenu {
             return false;
         });
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(size, size,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                windowType,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
