@@ -467,6 +467,7 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     @Override public Handler mainHandler() { return main; }
     @Override public boolean paused() { return false; }
     @Override public void resume() { }
+    @Override public void pause() { }
     @Override public Marks marks() { return null; }
     @Override public void takeBackControl() { ChatHub.get(this).stopAll(); }
     @Override public int bubbleWindowType() {
