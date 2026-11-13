@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * Accessibility service: draws the Buddy bubble, hosts the local MCP server,
  * and performs the screen actions the agent (Claude Code, Codex, OpenCode, Antigravity or Grok) asks for.
  */
-public class BuddyService extends AccessibilityService implements McpServer.Handler {
+public class BuddyService extends AccessibilityService implements McpServer.Handler, Bubble.Host {
     private static volatile BuddyService instance;
 
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -319,8 +319,12 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
         super.onDestroy();
     }
 
-    Handler mainHandler() {
-        return main;
+    @Override public Context bubbleContext() { return this; }
+
+    @Override public Handler mainHandler() { return main; }
+
+    @Override public int bubbleWindowType() {
+        return android.view.WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY;
     }
 
     /** Show or hide the bubble after the setting changes in the app. */
@@ -462,7 +466,7 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
     }
 
     /** The point_out tool's marks (main thread). */
-    Marks marks() {
+    @Override public Marks marks() {
         return marks;
     }
 
@@ -579,7 +583,7 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
     }
 
     /** Stop from the indicator or its notification: stop Buddy's chats and refuse phone actions for a minute. */
-    void takeBackControl() {
+    @Override public void takeBackControl() {
         main.post(() -> {
             CodexLive.end(getString(R.string.live_ended_paused)); // the user took the phone back: no voice either
             revokedUntil = android.os.SystemClock.elapsedRealtime() + 60_000;
@@ -590,12 +594,12 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
         });
     }
 
-    boolean paused() {
+    @Override public boolean paused() {
         return paused;
     }
 
     /** Pause (main thread): the agent's next phone action waits until resume, so the user can use the phone. */
-    void pause() {
+    @Override public void pause() {
         pause(R.string.service_paused_note, R.string.service_paused_toast);
     }
 
@@ -696,7 +700,7 @@ public class BuddyService extends AccessibilityService implements McpServer.Hand
     }
 
     /** Resume (main thread): waiting phone actions go on, after the agent re-reads the screen. */
-    void resume() {
+    @Override public void resume() {
         if (!paused) return;
         if (!pausedForBrowser) rereadNeeded = true; // the phone wasn't touched when the pause was the browser's
         endPause();

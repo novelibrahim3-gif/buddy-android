@@ -38,6 +38,7 @@ final class RootMarksOverlay {
     private final Handler main = new Handler(Looper.getMainLooper());
     private View view;
     private Runnable expiry;
+    private boolean hidden;
 
     RootMarksOverlay(Context context) {
         app = context.getApplicationContext();
@@ -61,6 +62,7 @@ final class RootMarksOverlay {
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS;
             lp.setFitInsetsTypes(0);
             lp.setTitle("Buddy point_out");
+            if (hidden) next.setVisibility(View.GONE);
             wm.addView(next, lp);
             view = next;
             expiry = this::clearNow;
@@ -70,6 +72,13 @@ final class RootMarksOverlay {
 
     void clear() throws Exception {
         onMain(this::clearNow);
+    }
+
+    void setHidden(boolean on) throws Exception {
+        onMain(() -> {
+            hidden = on;
+            if (view != null) view.setVisibility(on ? View.GONE : View.VISIBLE);
+        });
     }
 
     private void clearNow() {

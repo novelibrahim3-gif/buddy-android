@@ -61,7 +61,20 @@ final class Bubble implements ChatHub.Listener {
     }
 
 
-    private final BuddyService svc;
+    interface Host {
+        Context bubbleContext();
+        android.os.Handler mainHandler();
+        boolean paused();
+        void resume();
+        void pause();
+        Marks marks();
+        void takeBackControl();
+        int bubbleWindowType();
+    }
+
+    private final Context svc;
+    private final Host host;
+    private final java.util.IdentityHashMap<View, Integer> screenshotVisibility = new java.util.IdentityHashMap<>();
     private final WindowManager wm;
     private final Vibrator vibrator;
 
@@ -130,9 +143,37 @@ final class Bubble implements ChatHub.Listener {
     private LinearLayout sessionList;
 
     Bubble(BuddyService svc) {
-        this.svc = svc;
+        this((Host) svc);
+    }
+
+    Bubble(Host host) {
+        this.host = host;
+        this.svc = host.bubbleContext();
         this.wm = svc.getSystemService(WindowManager.class);
         this.vibrator = svc.getSystemService(Vibrator.class);
+    }
+
+    /** Hide every Buddy-owned window while the real display is captured, then restore exact visibility. */
+    void setScreenshotHidden(boolean hidden) {
+        if (hidden) {
+            screenshotVisibility.clear();
+            View[] views = {root, arcs, dismissWindow, waves, thumbWindow};
+            for (View view : views) {
+                if (view == null) continue;
+                screenshotVisibility.put(view, view.getVisibility());
+                view.setVisibility(View.GONE);
+            }
+            if (radial != null) radial.setScreenshotHidden(true);
+        } else {
+            if (radial != null) radial.setScreenshotHidden(false);
+            for (java.util.Map.Entry<View, Integer> entry : screenshotVisibility.entrySet()) {
+                View view = entry.getKey();
+                if (view != null) {
+                    try { view.setVisibility(entry.getValue()); } catch (Exception ignored) { }
+                }
+            }
+            screenshotVisibility.clear();
+        }
     }
 
     // ------------------------------------------------------------- layout
@@ -161,7 +202,7 @@ final class Bubble implements ChatHub.Listener {
         });
         lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, 0, PixelFormat.TRANSLUCENT);
+                host.bubbleWindowType(), 0, PixelFormat.TRANSLUCENT);
         root.addView(collapsed);
         applyCollapsedParams();
         createArcs();
@@ -169,7 +210,7 @@ final class Bubble implements ChatHub.Listener {
         wm.addView(root, lp);
         createThumb();
         hub = ChatHub.get(svc);
-        radial = new RadialMenu(svc, wm);
+        radial = new RadialMenu(svc, wm, host.bubbleWindowType());
         sessions = hub.sessions;
         hub.addListener(this);
         renderCurrent();
@@ -283,7 +324,7 @@ final class Bubble implements ChatHub.Listener {
             if (b - t != ob - ot || r - l != or - ol) updateThumb();
         });
         pill.setOnClickListener(v -> { // paused, the pill is the Resume button
-            if (svc.paused() && pendingConfirm == null) svc.resume();
+            if (host.paused() && pendingConfirm == null) host.resume();
             else if (thumbTab != null && thumbTab.equals(thumbHidden)) { // browsing with the thumbnail swiped away: back
                 thumbHidden = null;
                 updateThumb();
@@ -930,7 +971,7 @@ final class Bubble implements ChatHub.Listener {
         Sessions.Session call = CodexLive.session(); // during a live call the bubble opens its chat (unless a chat
         if (call != null && call != sessions.current && pendingConfirm == null) hub.select(call); // asks for an OK)
         expanded = true;
-        svc.marks().setPanelOpen(true);
+        if (host.marks() != null) host.marks().setPanelOpen(true);
         root.setVisibility(View.VISIBLE);
         badge.setVisibility(View.GONE);
         updateThumb();
@@ -975,7 +1016,7 @@ final class Bubble implements ChatHub.Listener {
         if (!expanded) return;
         if (Voice.listening()) Voice.stopListening();
         expanded = false;
-        svc.marks().setPanelOpen(false);
+        if (host.marks() != null) host.marks().setPanelOpen(false);
         updateViewing();
         unregisterBack();
         hideKeyboard();
@@ -1022,7 +1063,8 @@ final class Bubble implements ChatHub.Listener {
     /** The bubble can be turned off in the app; it then only appears for approval cards. */
     void applyEnabled() {
         if (locked && expanded && pendingConfirm == null) collapse();
-        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || svc.paused());
+        boolean activityVisible = activity != null && android.os.SystemClock.elapsedRealtime() - activityAt < ACTIVITY_MS;
+        boolean show = !locked && (Prefs.bubbleEnabled(svc) || expanded || pendingConfirm != null || controlling || host.paused() || activityVisible || externalStatus != null);
         boolean wasHidden = root.getVisibility() != View.VISIBLE;
         root.setVisibility(show ? View.VISIBLE : View.GONE);
         if (show && wasHidden && !expanded) popIn();
@@ -1071,7 +1113,7 @@ final class Bubble implements ChatHub.Listener {
         arcs = new ArcView(svc);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -1122,7 +1164,7 @@ final class Bubble implements ChatHub.Listener {
         dismissCircle.setElevation(dp(4));
         dismissWindow.addView(dismissCircle, new FrameLayout.LayoutParams(dp(60), dp(60), Gravity.CENTER));
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(dp(110), dp(110),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
                 PixelFormat.TRANSLUCENT);
         p.gravity = Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
@@ -1201,7 +1243,7 @@ final class Bubble implements ChatHub.Listener {
                     head.setScaleY(1f);
                     head.setRotation(0f);
                     head.setAlpha(1f);
-                    setWorking(!svc.paused() && (running || controlling), true);
+                    setWorking(!host.paused() && (running || controlling), true);
                 }).start();
         dismissCircle.animate().scaleX(1.45f).scaleY(1.45f).setDuration(110)
                 .setInterpolator(new DecelerateInterpolator())
@@ -1432,16 +1474,16 @@ final class Bubble implements ChatHub.Listener {
         vibrate(30);
         Prefs.setMenuHinted(svc);
         java.util.List<RadialMenu.Action> acts = new java.util.ArrayList<>();
-        boolean paused = svc.paused(), working = running || controlling || paused;
+        boolean paused = host.paused(), working = running || controlling || paused;
         if (working) acts.add(new RadialMenu.Action(R.drawable.ic_stop, svc.getString(R.string.menu_stop_task), true, () -> {
-            if (controlling || paused) svc.takeBackControl();
+            if (controlling || paused) host.takeBackControl();
             else {
                 hub.stopAll();
                 toast(svc.getString(R.string.bubble_stopping));
             }
         }));
-        if (paused) acts.add(new RadialMenu.Action(R.drawable.ic_play, svc.getString(R.string.menu_resume), false, svc::resume));
-        else if (working) acts.add(new RadialMenu.Action(R.drawable.ic_pause, svc.getString(R.string.menu_pause), false, svc::pause));
+        if (paused) acts.add(new RadialMenu.Action(R.drawable.ic_play, svc.getString(R.string.menu_resume), false, host::resume));
+        else if (working) acts.add(new RadialMenu.Action(R.drawable.ic_pause, svc.getString(R.string.menu_pause), false, host::pause));
         if (hub.runningCount() > 0) acts.add(new RadialMenu.Action(R.drawable.ms_mic, svc.getString(R.string.menu_add_instruction), false, this::dictateNote));
         if (Voice.isSpeaking()) acts.add(new RadialMenu.Action(R.drawable.ms_volume_off, svc.getString(R.string.menu_stop_voice), false, Voice::stopSpeaking));
         // listens with the chat closed, like Tap the bubble to talk (opening the chat first lost the mic)
@@ -1630,7 +1672,7 @@ final class Bubble implements ChatHub.Listener {
         int[] loc = new int[2];
         face.getLocationOnScreen(loc);
         WindowManager.LayoutParams p = new WindowManager.LayoutParams(w, h,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
@@ -2613,6 +2655,7 @@ final class Bubble implements ChatHub.Listener {
 
     /** What a tool is doing right now (see setActivity), shown in the pill for a few seconds. */
     private String activity;
+    private String externalStatus;
     private boolean activityBrowser;
     /** The browser tab of that step (see Browser.key), for the thumbnail. */
     private String activityTab;
@@ -2625,6 +2668,7 @@ final class Bubble implements ChatHub.Listener {
      * null.
      */
     void setActivity(String text, String browserTab) {
+        if (text != null) externalStatus = null;
         activity = text;
         activityBrowser = browserTab != null;
         activityTab = browserTab;
@@ -2634,15 +2678,19 @@ final class Bubble implements ChatHub.Listener {
             if (activityAt - thumbHiddenAt > THUMB_RUN_GAP_MS) thumbHidden = null;
             else thumbHiddenAt = activityAt;
         }
-        svc.mainHandler().removeCallbacks(activityExpired);
-        svc.mainHandler().postDelayed(activityExpired, ACTIVITY_MS + 100);
+        host.mainHandler().removeCallbacks(activityExpired);
+        host.mainHandler().postDelayed(activityExpired, ACTIVITY_MS + 100);
         refreshStatus();
+        applyEnabled();
     }
 
-    /** External status (the notify tool): shown on the current chat until its next step. */
+    /** External progress status (e.g. Hermes): shown until a new tool activity or Buddy chat run begins. */
     void setStatus(String text) {
-        if (text != null && !text.isEmpty()) sessions.current.status = text;
+        externalStatus = text == null || text.trim().isEmpty() ? null : text.trim();
+        if (externalStatus != null && sessions != null && sessions.current != null)
+            sessions.current.status = externalStatus;
         refreshStatus();
+        applyEnabled();
     }
 
     /** Pill, face, badge and header from the hub's state. */
@@ -2651,8 +2699,8 @@ final class Bubble implements ChatHub.Listener {
         boolean working = running || controlling;
         if (working && !wasWorking) maybePeek();
         wasWorking = working;
-        boolean paused = svc.paused();
-        String text = pendingConfirm == null ? hub.pillText()
+        boolean paused = host.paused();
+        String text = pendingConfirm == null ? (hub.runningCount() == 0 && externalStatus != null ? externalStatus : hub.pillText())
                 : handsOn ? svc.getString(R.string.bubble_pill_hands_on, clip(confirmText.getText().toString(), 90))
                 : svc.getString(asking ? R.string.bubble_pill_waiting_answer : R.string.bubble_pill_waiting_approval);
         boolean fresh = activity != null && android.os.SystemClock.elapsedRealtime() - activityAt < ACTIVITY_MS;
@@ -2663,7 +2711,7 @@ final class Bubble implements ChatHub.Listener {
             String step = fresh && !activityBrowser ? activity : text; // the tool's own step is the most precise
             text = step == null || step.isEmpty() ? svc.getString(R.string.bubble_using_phone)
                     : svc.getString(R.string.bubble_using_phone_status, step);
-        } else if (browsing && pendingConfirm == null) {
+        } else if (fresh && activity != null && pendingConfirm == null) {
             text = activity;
         }
         thumbTab = browsing && !paused && pendingConfirm == null ? activityTab : null;
@@ -2696,7 +2744,7 @@ final class Bubble implements ChatHub.Listener {
         pill.setBackground(rounded(controlling ? Ui.ACCENT : Ui.BG, 18, Ui.ACCENT, 1));
         badge.setVisibility(!expanded && hub.anyUnread() ? View.VISIBLE : View.GONE);
         updateThumb();
-        setWorking(!paused && (running || controlling || browsing));
+        setWorking(!paused && (running || controlling || browsing || (fresh && activity != null)));
         updateHeader();
         if (!expanded) {
             try {
@@ -2749,7 +2797,7 @@ final class Bubble implements ChatHub.Listener {
         thumbWindow.setVisibility(View.GONE);
         // the bubble's own flags, so its position counts from the same place (see placeThumb)
         thumbLp = new WindowManager.LayoutParams(dp(160), dp(328),
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                host.bubbleWindowType(),
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         thumbLp.gravity = Gravity.TOP | Gravity.START;
@@ -2874,7 +2922,7 @@ final class Bubble implements ChatHub.Listener {
         ring.setSpinning(on);
         // keep the fired-up / bracing face while the bubble is being dragged
         if (force || !faceDragging()) showFace(on ? R.drawable.bubble_face_thinking
-                : svc.paused() ? R.drawable.bubble_face_paused : R.drawable.bubble_face);
+                : host.paused() ? R.drawable.bubble_face_paused : R.drawable.bubble_face);
         if (on && breathing == null) {
             breathing = ValueAnimator.ofFloat(1f, 0.9f);
             breathing.setDuration(750);
@@ -3406,7 +3454,7 @@ final class Bubble implements ChatHub.Listener {
                         }
                         endArcs(false);
                         showDismissTarget(false);
-                        setWorking(!svc.paused() && (running || controlling), true);
+                        setWorking(!host.paused() && (running || controlling), true);
                         // fling to the nearest edge with a little bounce
                         final boolean right = lp.x + faceOffX > screen().width() / 2;
                         int edgeX = right ? screen().width() - root.getWidth() - dp(6) : dp(6);
@@ -3435,7 +3483,7 @@ final class Bubble implements ChatHub.Listener {
                     if (menu) return true;
                     endArcs(false);
                     showDismissTarget(false);
-                    setWorking(!svc.paused() && (running || controlling), true);
+                    setWorking(!host.paused() && (running || controlling), true);
                     return true;
                 default:
                     return false;
