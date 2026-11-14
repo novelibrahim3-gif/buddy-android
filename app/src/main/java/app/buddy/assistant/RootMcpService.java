@@ -412,8 +412,9 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
         final String chatId = McpServer.CALLER_CHAT.get();
         final ChatHub hub = ChatHub.get(this);
         final Sessions.Session chat = chatId == null ? null : hub.sessions.find(chatId);
-        final String step = ChatHub.describeTool(name, args, true);
-        if (chat != null && step != null) hub.note(chat, Bubble.Kind.STEP, "▶ " + step);
+        String described = ChatHub.describeTool(name, args, true);
+        final String step = described == null ? "Menggunakan tool " + name : described;
+        if (chat != null) hub.note(chat, Bubble.Kind.STEP, "▶ " + step);
         final Runnable[] pulse = new Runnable[1];
         pulse[0] = () -> {
             if (!active || bubble == null) return;
@@ -428,14 +429,10 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
         main.postDelayed(pulse[0], 4500);
         try {
             JSONObject result = callToolInternal(name, args);
-            if (chat != null && step != null) {
-                JSONArray content = result.optJSONArray("content");
-                JSONObject first = content == null ? null : content.optJSONObject(0);
-                String outcome = first == null ? "" : first.optString("text", "");
-                String lower = outcome.toLowerCase(java.util.Locale.ROOT);
-                boolean failed = result.optBoolean("isError") || lower.startsWith("error:") || lower.contains("failed");
+            if (chat != null) {
+                boolean failed = result.optBoolean("isError");
                 hub.note(chat, failed ? Bubble.Kind.ERROR : Bubble.Kind.STEP,
-                        (failed ? "✕ " : "✓ ") + step + (outcome.isEmpty() ? "" : " — " + ChatHub.clip(outcome, 180)));
+                        (failed ? "✕ Gagal: " : "✓ Selesai: ") + step);
             }
             if (STEPPED_TOOLS.contains(name)) {
                 JSONArray content = result.optJSONArray("content");
@@ -453,8 +450,7 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
             }
             return result;
         } catch (Exception e) {
-            if (chat != null && step != null)
-                hub.note(chat, Bubble.Kind.ERROR, "✕ " + step + " — " + ChatHub.clip(String.valueOf(e.getMessage()), 180));
+            if (chat != null) hub.note(chat, Bubble.Kind.ERROR, "✕ Gagal: " + step);
             throw e;
         } finally {
             main.removeCallbacks(pulse[0]);
