@@ -383,21 +383,30 @@ public final class Schedules extends BroadcastReceiver {
                     continue;
                 }
                 BuddyService svc = BuddyService.get();
-                String skip = svc == null ? app.getString(R.string.rules_log_no_service) // its server is how the agent works
+                RootMcpService root = RootMcpService.get();
+                String skip = svc == null && root == null ? app.getString(R.string.rules_log_no_service)
                         : !SetupState.signedIn(app, s.backend) ? app.getString(R.string.rules_log_not_signed_in, s.brainName())
                         : s.running && l == null ? app.getString(R.string.schedule_skip_running) : null;
-                if (skip == null && busy(hub, svc)) { // the agent's own message waits for its chat to finish, too
+                if (skip == null && (svc != null ? busy(hub, svc) : busy(hub, root))) {
                     if (now < until) continue;
                     skip = app.getString(R.string.schedule_skip_busy);
                 }
                 waiting.remove(key);
-                if (l != null) {
-                    s.later.remove(l); // sent once, whatever happens now
+                if (skip != null) {
+                    if (l != null) {
+                        s.later.remove(l);
+                        hub.sessions.save(s);
+                        hub.changed();
+                    }
+                    notice(app, s, app.getString(R.string.schedule_skipped_title, s.label()), skip);
+                } else if (start(s, l) && l != null) {
+                    s.later.remove(l);
                     hub.sessions.save(s);
                     hub.changed();
+                } else if (l != null) {
+                    // Keep a one-shot message if the chat rejected it; retry without losing the saved Later.
+                    setAlarm(app, System.currentTimeMillis() + LOOK_MS, laterAlarm(app, s.id, l.id));
                 }
-                if (skip != null) notice(app, s, app.getString(R.string.schedule_skipped_title, s.label()), skip);
-                else start(s, l);
             }
             main.removeCallbacks(look);
             if (!waiting.isEmpty()) main.postDelayed(look, LOOK_MS);
@@ -415,7 +424,12 @@ public final class Schedules extends BroadcastReceiver {
                 || svc.controlRevoked() != null || !online();
     }
 
-    private static void start(Sessions.Session s, Later l) {
+    /** The standalone Root MCP runtime has no BuddyService; its bubble still carries approval state. */
+    private static boolean busy(ChatHub hub, RootMcpService root) {
+        return hub.runningCount() > 0 || root == null || root.confirming() || !online();
+    }
+
+    private static boolean start(Sessions.Session s, Later l) {
         String text = l != null ? l.text : s.schedule.text;
         boolean locked = Triggers.locked(app);
         StringBuilder prompt = new StringBuilder(l != null
@@ -441,12 +455,13 @@ public final class Schedules extends BroadcastReceiver {
         String err = ChatHub.get(app).sendScheduled(s, text, prompt.toString());
         if (err != null) {
             notice(app, s, app.getString(R.string.schedule_skipped_title, s.label()), err);
-            return;
+            return false;
         }
         s.quietRun = quiet;
         clearNotice(app, s.id);
         running.add(s.id);
         holdWake();
+        return true;
     }
 
     /** Is there a network to reach the agent's model? */

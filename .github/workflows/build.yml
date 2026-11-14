@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, root-only-control]
+    branches: [main, root-only-control, fix/root-scheduler-bubble-tools]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -30,8 +30,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-
-      - uses: gradle/actions/setup-gradle@v6
 
       # proot, talloc, libandroid-shmem and the pty helper, from source with a fixed NDK
       - name: Build native libraries
