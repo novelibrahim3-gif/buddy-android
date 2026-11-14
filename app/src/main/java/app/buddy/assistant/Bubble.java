@@ -808,6 +808,13 @@ final class Bubble implements ChatHub.Listener {
     private void fitKeyboard() {
         if (!expanded || passThrough) return;
         int kb = insetIme;
+        // Application overlays do not always receive IME insets on Android 14/HyperOS. Query the display
+        // metrics as well: this works in Root MCP mode too, where Accessibility is deliberately disabled.
+        try {
+            android.graphics.Insets displayIme = wm.getCurrentWindowMetrics().getWindowInsets()
+                    .getInsets(android.view.WindowInsets.Type.ime());
+            kb = Math.max(kb, displayIme.bottom);
+        } catch (Exception ignored) { }
         if (imeTop > 0 && input != null && input.hasFocus() && root.hasWindowFocus()) {
             int[] loc = new int[2];
             root.getLocationOnScreen(loc);
@@ -820,6 +827,8 @@ final class Bubble implements ChatHub.Listener {
         if (headButtons != null) headButtons.setVisibility(pad > 0 ? View.GONE : View.VISIBLE); // room for the chat
         if (root.getPaddingBottom() != pad) {
             root.setPaddingRelative(0, 0, 0, pad);
+            root.requestLayout();
+            // Keep the latest tool/result visible after the panel has been shortened above the IME.
             scrollToEnd();
         }
     }
