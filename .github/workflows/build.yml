@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [main, root-only-control]
+    branches: [main, root-only-control, fix/root-scheduler-bubble-tools]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -20,7 +20,8 @@ jobs:
         run: bash linux/test/run.sh
 
   apk:
-    runs-on: ubuntu-latest
+    # Build this fix on the connected Android ARM64 runner; keep hosted builds for normal branches.
+    runs-on: ${{ github.ref_name == 'fix/root-scheduler-bubble-tools' && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
         with:
