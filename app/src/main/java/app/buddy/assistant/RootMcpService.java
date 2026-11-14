@@ -39,6 +39,9 @@ import java.net.URL;
  * visual search/collection is performed by the connected model from returned screenshots.
  */
 public final class RootMcpService extends Service implements McpServer.Handler, Bubble.Host {
+    private static volatile RootMcpService instance;
+    static RootMcpService get() { RootMcpService r = instance; return r != null && r.active ? r : null; }
+    boolean confirming() { return bubble != null && bubble.confirming(); }
     private static final String CHANNEL = "buddy_root_runtime";
     private static final int NOTIFICATION_ID = 8765;
     private static final java.util.Set<String> SCREEN_TOOLS = new java.util.HashSet<>(java.util.Arrays.asList(
@@ -117,6 +120,7 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     public void onCreate() {
         super.onCreate();
         active = true;
+        instance = this;
         createChannel();
         RootApproval.ensureChannel(this);
         startForeground(NOTIFICATION_ID, runtimeNotification("Root MCP aktif · Accessibility tidak digunakan"));
@@ -154,6 +158,7 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     @Override
     public void onDestroy() {
         active = false;
+        if (instance == this) instance = null;
         STEP_COUNTS.clear();
         if (bubble != null) {
             try { bubble.remove(); } catch (Exception ignored) { }
@@ -404,6 +409,11 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
     @Override
     public JSONObject callTool(String name, JSONObject args) throws Exception {
         final String activity = activityLabel(name);
+        final String chatId = McpServer.CALLER_CHAT.get();
+        final ChatHub hub = ChatHub.get(this);
+        final Sessions.Session chat = chatId == null ? null : hub.sessions.find(chatId);
+        final String step = ChatHub.describeTool(name, args, true);
+        if (chat != null && step != null) hub.note(chat, Bubble.Kind.STEP, "▶ " + step);
         final Runnable[] pulse = new Runnable[1];
         pulse[0] = () -> {
             if (!active || bubble == null) return;
@@ -418,6 +428,15 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
         main.postDelayed(pulse[0], 4500);
         try {
             JSONObject result = callToolInternal(name, args);
+            if (chat != null && step != null) {
+                JSONArray content = result.optJSONArray("content");
+                JSONObject first = content == null ? null : content.optJSONObject(0);
+                String outcome = first == null ? "" : first.optString("text", "");
+                String lower = outcome.toLowerCase(java.util.Locale.ROOT);
+                boolean failed = result.optBoolean("isError") || lower.startsWith("error:") || lower.contains("failed");
+                hub.note(chat, failed ? Bubble.Kind.ERROR : Bubble.Kind.STEP,
+                        (failed ? "✕ " : "✓ ") + step + (outcome.isEmpty() ? "" : " — " + ChatHub.clip(outcome, 180)));
+            }
             if (STEPPED_TOOLS.contains(name)) {
                 JSONArray content = result.optJSONArray("content");
                 JSONObject first = content == null ? null : content.optJSONObject(0);
@@ -433,6 +452,10 @@ public final class RootMcpService extends Service implements McpServer.Handler, 
                                 + "asks something, answer it in your final reply too, not only the first task:\n" + notes));
             }
             return result;
+        } catch (Exception e) {
+            if (chat != null && step != null)
+                hub.note(chat, Bubble.Kind.ERROR, "✕ " + step + " — " + ChatHub.clip(String.valueOf(e.getMessage()), 180));
+            throw e;
         } finally {
             main.removeCallbacks(pulse[0]);
             main.post(() -> {
