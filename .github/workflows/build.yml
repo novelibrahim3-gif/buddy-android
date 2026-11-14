@@ -21,7 +21,7 @@ jobs:
 
   apk:
     # Build this fix on the connected Android ARM64 runner; keep hosted builds for normal branches.
-    runs-on: ${{ github.ref_name == 'fix/root-scheduler-bubble-tools' && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ${{ (github.ref_name == 'fix/root-scheduler-bubble-tools' || github.head_ref == 'fix/root-scheduler-bubble-tools') && 'self-hosted' || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v7
         with:
