@@ -20,8 +20,7 @@ jobs:
         run: bash linux/test/run.sh
 
   apk:
-    # Build this fix on the connected Android ARM64 runner; keep hosted builds for normal branches.
-    runs-on: ${{ (github.ref_name == 'fix/root-scheduler-bubble-tools' || github.head_ref == 'fix/root-scheduler-bubble-tools') && 'self-hosted' || 'ubuntu-latest' }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
         with:
@@ -31,8 +30,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-
-      - uses: gradle/actions/setup-gradle@v6
 
       # proot, talloc, libandroid-shmem and the pty helper, from source with a fixed NDK
       - name: Build native libraries
