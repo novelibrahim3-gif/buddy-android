@@ -63,6 +63,7 @@ final class McpServer {
     private final Handler handler;
     private final ExecutorService pool = Executors.newCachedThreadPool();
     private volatile ServerSocket socket;
+    private volatile ServerSocket tailnetSocket;
     private volatile boolean running;
 
     McpServer(String token, Handler handler) {
@@ -75,12 +76,19 @@ final class McpServer {
         Thread t = new Thread(this::acceptLoop, "buddy-mcp");
         t.setDaemon(true);
         t.start();
+        Thread tn = new Thread(this::tailnetLoop, "buddy-mcp-tailnet");
+        tn.setDaemon(true);
+        tn.start();
     }
 
     void stop() {
         running = false;
         try {
             if (socket != null) socket.close();
+        } catch (IOException ignored) {
+        }
+        try {
+            if (tailnetSocket != null) tailnetSocket.close();
         } catch (IOException ignored) {
         }
         pool.shutdownNow();
@@ -121,7 +129,59 @@ final class McpServer {
         }
     }
 
+    /**
+     * Expose a second listener only on the phone's Tailscale IPv4 address. It follows VPN address changes
+     * and closes promptly when the user switches the feature off.
+     */
+    private void tailnetLoop() {
+        while (running) {
+            InetAddress at = Tailnet.address(BuddyApp.context());
+            if (at == null) {
+                pause(5000);
+                continue;
+            }
+            ServerSocket ss = null;
+            try {
+                ss = new ServerSocket();
+                ss.setReuseAddress(true);
+                ss.bind(new InetSocketAddress(at, PORT));
+                ss.setSoTimeout(5000);
+                tailnetSocket = ss;
+                while (running && at.equals(Tailnet.address(BuddyApp.context()))) {
+                    try {
+                        final Socket s = ss.accept();
+                        pool.execute(() -> handle(s, true));
+                    } catch (java.net.SocketTimeoutException again) {
+                        // Re-check the VPN address and feature switch.
+                    }
+                }
+            } catch (IOException e) {
+                if (running) {
+                    Log.w(TAG, "tailnet listener error; retrying", e);
+                    pause(5000);
+                }
+            } finally {
+                if (ss != null) {
+                    try { ss.close(); } catch (IOException ignored) { }
+                }
+                if (tailnetSocket == ss) tailnetSocket = null;
+            }
+        }
+    }
+
+    private static void pause(long ms) {
+        try {
+            Thread.sleep(ms);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
     private void handle(Socket s) {
+        handle(s, false);
+    }
+
+    private void handle(Socket s, boolean remote) {
         try {
             s.setSoTimeout(30000);
             InputStream in = new BufferedInputStream(s.getInputStream());
@@ -153,13 +213,47 @@ final class McpServer {
                     headers.put(line.substring(0, c).trim().toLowerCase(Locale.ROOT), line.substring(c + 1).trim());
                 }
             }
+
+            if (remote && "/pair".equals(path) && "POST".equals(method)) {
+                String name = null;
+                int nq = rawPath.indexOf("name=");
+                if (nq >= 0) {
+                    name = java.net.URLDecoder.decode(rawPath.substring(nq + 5).split("&")[0], "UTF-8");
+                }
+                CALLER_GONE.set(() -> gone(s, in));
+                String config = Tailnet.pair(BuddyApp.context(), name, s.getInetAddress(), s.getLocalAddress());
+                if (config == null) send(out, 403, "text/plain", "not paired\n");
+                else send(out, 200, "application/json", config);
+                return;
+            }
+
+            Tailnet.Device remoteDevice = null;
+            if (remote) {
+                // A tailnet connection may use only /mcp; never expose /event, /file, /ssh-key or relay routes.
+                if (!"/mcp".equals(path)) {
+                    send(out, 404, null, null);
+                    return;
+                }
+                String auth = headers.get("authorization");
+                remoteDevice = auth != null && auth.startsWith("Bearer ")
+                        ? Tailnet.device(BuddyApp.context(), auth.substring(7)) : null;
+                if (remoteDevice == null) {
+                    send(out, 401, "application/json", "{\"error\":\"unauthorized\"}");
+                    return;
+                }
+                // Remote computers must never select one of Buddy's internal chat sessions via ?chat=...
+                CALLER_CHAT.set(null);
+                CALLER_REMOTE.set(remoteDevice.name);
+            }
+
             // Anthropic-style clients (OpenCode's) send the token they were given as x-api-key: the relay takes that too
-            boolean relay = path.startsWith(Relay.PATH);
+            boolean relay = !remote && path.startsWith(Relay.PATH);
             String xKey = relay ? headers.get("x-api-key") : null;
-            boolean known = authorized(headers.get("authorization")) || xKey != null && authorized("Bearer " + xKey);
+            boolean known = remote || authorized(headers.get("authorization"))
+                    || xKey != null && authorized("Bearer " + xKey);
             // an agent's API request carries the chat's pictures every time: tens of MB in a long chat
             String length = headers.get("content-length");
-            if (relay && known && length != null && !Relay.rewrites(rawPath)) {
+            if (!remote && relay && known && length != null && !Relay.rewrites(rawPath)) {
                 // straight on to the service as it comes in: the relay has no size limit of its own
                 Relay.handle(BuddyApp.context(), method, rawPath, headers, null, in, Long.parseLong(length.trim()), out);
                 return;
@@ -239,6 +333,7 @@ final class McpServer {
             // Worker threads are reused: never retain one chat's identity for the next request.
             CALLER_CHAT.remove();
             CALLER_GONE.remove();
+            CALLER_REMOTE.remove();
             try {
                 s.close();
             } catch (IOException ignored) {
@@ -249,6 +344,8 @@ final class McpServer {
     /** Returns null for notifications. */
     /** The Buddy chat whose agent made the current request (on this thread), or null for another session. */
     static final ThreadLocal<String> CALLER_CHAT = new ThreadLocal<>();
+    /** Name of the paired computer making a request over Tailscale, otherwise null. */
+    static final ThreadLocal<String> CALLER_REMOTE = new ThreadLocal<>();
     /** True once the client of the current request (on this thread) has hung up, e.g. its tool call timed out. */
     static final ThreadLocal<java.util.function.BooleanSupplier> CALLER_GONE = new ThreadLocal<>();
 
