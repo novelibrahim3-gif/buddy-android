@@ -425,6 +425,56 @@ public class SetupActivity extends Screen implements Account.Listener, RemoteSes
         mcp.addView(copy, cpp);
         addCard(mcp);
 
+        // ---------------------------------------------------- phone tools over Tailscale
+        list.addView(sectionLabel(this, getString(R.string.setup_tailnet_title)));
+        LinearLayout tn = card();
+        tn.setPaddingRelative(dp(this, 16), dp(this, 14), dp(this, 16), dp(this, 16));
+        boolean tailnetOn = Prefs.tailnetTools(this);
+        tn.addView(switchRow(this, getString(R.string.setup_tailnet), getString(R.string.setup_tailnet_info),
+                tailnetOn, on -> {
+                    Prefs.setTailnetTools(this, on);
+                    render();
+                }));
+        if (tailnetOn) {
+            java.net.InetAddress tailnetAddress = Tailnet.address(this);
+            tn.addView(text(this, tailnetAddress == null ? getString(R.string.setup_tailnet_no_address)
+                    : getString(R.string.setup_tailnet_address, tailnetAddress.getHostAddress()),
+                    13, tailnetAddress == null ? ERR : MUTED), topGap(8));
+            if (tailnetAddress != null) {
+                tn.addView(text(this, getString(R.string.setup_tailnet_pair_info), 13, MUTED), topGap(10));
+                String pairUrl = "http://" + tailnetAddress.getHostAddress() + ":" + McpServer.PORT + "/pair?name=";
+                String pairCommand = "c=\"$(curl -fsS --max-time 100 -X POST \"" + pairUrl
+                        + "$(hostname | tr -cd 'A-Za-z0-9 ._-')\")\" && { "
+                        + "claude mcp remove -s user phone >/dev/null 2>&1 || true; "
+                        + "claude mcp add-json -s user phone \"$c\"; } || "
+                        + "echo \"Pairing gagal: pastikan Tailscale aktif dan setujui permintaan di HP.\"";
+                tn.addView(codeBlock(this, pairCommand), topGap(8));
+                Button pairCopy = button(this, getString(R.string.setup_copy_command), false);
+                pairCopy.setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ms_content_copy, 0, 0, 0);
+                pairCopy.setCompoundDrawableTintList(android.content.res.ColorStateList.valueOf(TEXT));
+                pairCopy.setCompoundDrawablePadding(dp(this, 8));
+                pairCopy.setOnClickListener(v -> {
+                    getSystemService(ClipboardManager.class).setPrimaryClip(ClipData.newPlainText("Tailscale pairing", pairCommand));
+                    Toast.makeText(this, R.string.setup_command_copied, Toast.LENGTH_SHORT).show();
+                });
+                tn.addView(pairCopy, topGap(8));
+            }
+            for (Tailnet.Device device : Tailnet.devices(this)) {
+                LinearLayout deviceRow = row(this);
+                deviceRow.setGravity(Gravity.CENTER_VERTICAL);
+                deviceRow.addView(text(this, device.name, 14, TEXT), weight1());
+                Button remove = button(this, getString(R.string.schedule_remove), false);
+                remove.setTextColor(ERR);
+                remove.setOnClickListener(v -> {
+                    Tailnet.remove(this, device.id);
+                    render();
+                });
+                deviceRow.addView(remove, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(this, 40)));
+                tn.addView(deviceRow, topGap(8));
+            }
+        }
+        addCard(tn);
+
         // ---------------------------------------------------------------- voice
         list.addView(sectionLabel(this, getString(R.string.setup_voice)));
         LinearLayout vc = card();
