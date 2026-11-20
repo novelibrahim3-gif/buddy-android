@@ -110,6 +110,8 @@ final class Tailnet {
 
             java.util.function.BooleanSupplier gone = McpServer.CALLER_GONE.get();
             if (gone != null && gone.getAsBoolean()) return null;
+            // The switch or VPN address may have changed while the user was deciding.
+            if (!Prefs.tailnetTools(c) || !phone.equals(address(c))) return null;
 
             Device device = add(c, name);
             return new JSONObject().put("type", "http")
