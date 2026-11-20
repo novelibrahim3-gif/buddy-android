@@ -27,6 +27,24 @@ final class Prefs {
         return t;
     }
 
+    /** "Phone tools on Tailscale" is opt-in and independent of the local MCP token. */
+    static boolean tailnetTools(Context c) {
+        return sp(c).getBoolean("tailnet_tools", false);
+    }
+
+    static void setTailnetTools(Context c, boolean on) {
+        sp(c).edit().putBoolean("tailnet_tools", on).apply();
+    }
+
+    /** Paired computers and their individual bearer tokens, stored across app and phone restarts. */
+    static String tailnetDevices(Context c) {
+        return sp(c).getString("tailnet_devices", "[]");
+    }
+
+    static void setTailnetDevices(Context c, String json) {
+        sp(c).edit().putString("tailnet_devices", json).apply();
+    }
+
     /** Background mode: Buddy's adb is paired with this phone's Wireless debugging (see Background). */
     static boolean backgroundPaired(Context c) {
         return sp(c).getBoolean("bg_paired", false);
