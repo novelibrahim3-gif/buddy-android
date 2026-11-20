@@ -1,0 +1,41 @@
+name: Merge upstream Buddy safely
+
+on:
+  push:
+    branches: [root-only-control]
+
+permissions:
+  contents: write
+
+jobs:
+  merge-upstream:
+    if: startsWith(github.event.head_commit.message, 'ci: prepare upstream merge v2.3.15')
+    runs-on: self-hosted
+    steps:
+      - name: Checkout fork branch
+        uses: actions/checkout@v7
+        with:
+          ref: root-only-control
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Fetch upstream release
+        run: |
+          git remote add upstream https://github.com/ghorbelhamdi/buddy-android.git
+          git fetch upstream tag v2.3.15
+
+      - name: Merge without overwriting fork changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git merge --no-commit --no-ff v2.3.15; then
+            git commit -m "Merge upstream Buddy v2.3.15 into root-only-control"
+            git push origin HEAD:root-only-control
+          else
+            echo "=== MERGE CONFLICTS ==="
+            git diff --name-only --diff-filter=U | tee "$RUNNER_TEMP/upstream-merge-conflicts.txt"
+            echo "=== CONFLICT COUNT ==="
+            git diff --name-only --diff-filter=U | wc -l
+            git merge --abort || true
+            exit 1
+          fi
