@@ -1264,6 +1264,14 @@
     <string name="setup_copy_command">Copy command</string>
     <string name="setup_command_copied">Copied. Paste it in your terminal.</string>
 
+    <!-- Settings screen: phone tools over the user's Tailscale network. -->
+    <string name="setup_tailnet_title">Remote phone tools</string>
+    <string name="setup_tailnet">Phone tools over Tailscale</string>
+    <string name="setup_tailnet_info">Allow a computer on your private Tailscale network to use this phone's MCP tools. Pairing requires approval on this phone. Each computer gets its own revocable token; this feature is off by default.</string>
+    <string name="setup_tailnet_no_address">Tailscale IPv4 address not found. Connect the Tailscale app on this phone, then reopen Settings.</string>
+    <string name="setup_tailnet_address">Tailscale address: %1$s</string>
+    <string name="setup_tailnet_pair_info">On your Linux PC, run the command below. Approve the named computer in the notification on this phone. Claude Code will then save its private MCP token locally.</string>
+
     <!-- Settings screen: Voice. -->
     <string name="setup_voice">Voice</string>
     <string name="setup_assist">When Buddy is the phone\'s assistant</string>
